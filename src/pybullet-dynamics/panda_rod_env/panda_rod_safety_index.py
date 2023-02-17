@@ -30,7 +30,8 @@ class PandaRodSafetyIndex:
         self.k_v = k_v
         self.lamda = lamda
 
-        self.dims = PandaRodDataset(data_path='./src/pybullet-dynamics/panda_rod_env/model/env_data_test_bn_1/').get_dim()
+        # self.dims = PandaRodDataset(data_path='./src/pybullet-dynamics/panda_rod_env/model/env_data_test_bn_1/').get_dim()
+        self.dims = {'f_dim': 14, 'g_flat_dim': 14*7, 'u_dim': 7}
         self.f_dim = self.dims['f_dim']
         self.g_flat_dim = self.dims['g_flat_dim']
         self.u_dim = self.dims['u_dim']

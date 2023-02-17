@@ -4,6 +4,7 @@ import numpy as np
 import pickle
 import cv2
 import heapq
+import time
 
 from panda_latent_env import PandaLatentEnv
 
@@ -136,30 +137,36 @@ if __name__ == '__main__':
         render_flag=False, 
         goal_pose=[0.7, 0.3, 0.4], 
         obstacle_pose=[0.45, 0.1, 0.55], 
-        if_task=False,
+        if_task=True,
         robot_file_path='src/pybullet-dynamics/panda_rod_env/urdf/panda_without_rod.urdf',
         dof=7
     )
     
-    q = np.array([ 2.2122625 , -1.23601788, -1.44122092, -2.2912187 ,  2.45808416,
-         0.41332959,  2.43699197])
-    env.robot.set_joint_states(q, np.zeros_like(q))
-    rgb = env.render(
-            height=512, width=512,
-            cam_dist=1.2,
-            camera_target_position=[0, -0.2, 0.2],
-            cam_yaw=-45, cam_pitch=-40, cam_roll=0, 
-        )
-    img_path = 'src/pybullet-dynamics/panda_rod_env/imgs/final/'
-    cv2.imwrite(img_path + 'dot_M_max_pose.jpg', rgb)
-    exit(0)
+    # q = np.array([ 2.2122625 , -1.23601788, -1.44122092, -2.2912187 ,  2.45808416,
+    #      0.41332959,  2.43699197])
+    # env.robot.set_joint_states(q, np.zeros_like(q))
+    # rgb = env.render(
+    #         height=512, width=512,
+    #         cam_dist=1.2,
+    #         camera_target_position=[0, -0.2, 0.2],
+    #         cam_yaw=-45, cam_pitch=-40, cam_roll=0, 
+    #     )
+    # img_path = 'src/pybullet-dynamics/panda_rod_env/imgs/final/'
+    # cv2.imwrite(img_path + 'dot_M_max_pose.jpg', rgb)
+    # exit(0)
     
-    # # with open('src/pybullet-dynamics/panda_rod_env/data/final_data/M_and_dot_M_max_distribution.pkl', 'rb') as file:
-    # #     data = pickle.load(file)
+    # with open('src/pybullet-dynamics/panda_rod_env/data/final_data/M_and_dot_M_max_distribution.pkl', 'rb') as file:
+    #     data = pickle.load(file)
     
-    # root_path = 'src/pybullet-dynamics/panda_rod_env/data/M_and_dot_M_max/'
-    # collect_M_and_dot_M_max(env, path=root_path + 'cpu/')
-    # # collect_M(env)
-    # # analyze_M(env)
-    # # dump_data(pkl_name='fix_6_7.pkl', num=1e5)
+    start = time.time()
+    
+    root_path = 'src/pybullet-dynamics/panda_rod_env/data/M_and_dot_M_max/'
+    collect_M_and_dot_M_max(env, num=int(1e5), path=root_path + 'cpu/')
+    
+    end = time.time()
+    print(f'total time: {end - start} seconds')
+    
+    # collect_M(env)
+    # analyze_M(env)
+    # dump_data(pkl_name='fix_6_7.pkl', num=1e5)
     

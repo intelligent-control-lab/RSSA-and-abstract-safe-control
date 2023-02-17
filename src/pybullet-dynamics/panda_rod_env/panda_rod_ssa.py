@@ -205,7 +205,7 @@ def evaluate_latent_ssa(
     step_num=960,
 ):
     env = PandaLatentEnv(
-        render_flag=True, 
+        render_flag=False, 
         goal_pose=goal_pose, obstacle_pose=obstacle_pose, 
         robot_file_path=robot_file_path, dof=dof,
     )
@@ -232,6 +232,9 @@ if __name__ == '__main__':
     k_v = 133
     goal_pose_lim = {'low': [0.6, 0.2, 0.3], 'high': [0.8, 0.4, 0.5]}
     obstacle_pose_lim = {'low': [0.35, 0.0, 0.45], 'high': [0.55, 0.2, 0.65]}
+    
+    start = time.time()
+    
     for i in range(100):
         print(i)
         goal_pose = np.random.uniform(low=goal_pose_lim['low'], high=goal_pose_lim['high'])
@@ -241,7 +244,9 @@ if __name__ == '__main__':
             goal_pose=goal_pose, obstacle_pose=obstacle_pose,
             robot_file_path='src/pybullet-dynamics/panda_rod_env/urdf/panda_without_rod.urdf', dof=7, 
         )
-        import ipdb; ipdb.set_trace()
+
+    end = time.time()
+    print(f'total time: {end - start} seconds')
     
     
     # env = PandaRodEnv(render_flag=False, goal_pose=[0.65, 0.1, 0.5], obstacle_pose=[0.5, 0.0, 0.4])
