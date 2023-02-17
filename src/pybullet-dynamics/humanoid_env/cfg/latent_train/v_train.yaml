@@ -1,0 +1,14 @@
+model:
+  hidden_dim: 512
+  num_layer: 4
+  use_bn: True
+  use_residual: False
+  if_preprocess: True
+
+train:
+  device: 'cuda'
+  lr: 0.05
+  epochs: 500
+  save_epoch_interval: 10
+  dataset_path: './data/v_data/'
+  lr_steps: 100

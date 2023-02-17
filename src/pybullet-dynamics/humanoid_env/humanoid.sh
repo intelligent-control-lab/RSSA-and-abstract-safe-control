@@ -1,0 +1,1 @@
+python ./src/pybullet-dynamics/humanoid_env/humanoid_env.py task=Humanoid num_envs=10000 test=True checkpoint=src/pybullet-dynamics/humanoid_env/Humanoid.pth force_render=True headless=True

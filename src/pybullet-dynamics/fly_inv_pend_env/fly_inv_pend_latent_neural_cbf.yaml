@@ -1,0 +1,30 @@
+# parameters for latent neural CBF training in flying pendulum environment
+
+log_root_path: './src/pybullet-dynamics/fly_inv_pend_env/latent_neural_cbf_log/'
+
+# env setting 
+robot_kwargs:
+  device: 'cuda'
+  dt: 0.001
+  L_p: 3.0
+  init_params:
+    a: 0.6
+
+# latent CBF NN model setting
+model_kwargs:
+  device: 'cuda'
+  gamma: 0.1
+  relaxation_penalty: 5000
+  phi_hidden_dim: 256
+  phi_num_layer: 2
+
+# latent CBF train setting
+train_kwargs:
+  dataset_path: './src/pybullet-dynamics/fly_inv_pend_env/data/latent_neural_cbf_data/'
+  lr: 0.01
+  epochs: 100
+  save_epoch_interval: 1
+  lr_steps: 20
+  indices_num: 50
+  train_ratio: 0.8
+

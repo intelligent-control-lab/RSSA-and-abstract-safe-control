@@ -1,0 +1,86 @@
+# parameters for safe control in SegWay robot environment
+
+# env setting 
+robot_kwargs:
+  dt: 0.00416667  # 1 / 240
+  K_m: 2.2
+  K_b: 0.189
+  m_0: 52.710
+  m: 44.798 
+  J_0: 5.108
+  L: 0.169 
+  l: 0.75
+  R: 0.195
+  g: 9.81
+
+  # q limits
+  q_limit:
+    low:
+      - -100.0
+      - -1.57
+    high:
+      - 100
+      - 1.57
+  
+  # dq limits
+  dq_limit:
+    low:
+      - -5.0
+      - -5.0
+    high:
+      - 5.0
+      - 5.0
+  
+  # u limits
+  u_limit:
+    low:
+      - -20.0
+    high:
+      - 20.0
+
+  # a_safe limits
+  a_safe_limit:
+    low: -0.1
+    high: 0.1
+
+# parameter learning setting
+param_learning_kwargs:
+  use_online_adaptation: false
+  K_m_mean_init: 2.524
+  K_m_std_init: 0.3
+
+# safe control setting
+safe_control_kwargs:
+  param_dict:
+    k_v: 1.0
+    beta: 0.0
+
+  rssa_types: # just four types: 'none', 'safety_index', 'gaussian_rssa', 'convex_rssa'
+    - 'safety_index'
+    - 'gaussian_rssa'
+    - 'convex_rssa'
+    # - 'none'
+  use_true_param: false # 'safety_index'
+  sample_points_num: 50 # 'gaussian_rssa', 'convex_rssa'
+  confidence_level: 0.01 # 'gaussian_rssa'
+  gamma: 0.1
+  rho: 0.23
+  fast_SegWay: True
+
+# task setting
+speed_kwargs: # the SegWay robot tries to obtain a constant linear speed dp
+  q_d:
+    - 0.0
+    - 0.0
+  dq_d:
+    - 1.0
+    - 0.0
+
+  q_init:
+    - 0.0
+    - 0.0
+  
+  
+
+
+

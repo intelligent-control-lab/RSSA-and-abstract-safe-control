@@ -1,0 +1,22 @@
+# parameters for latent neural CBF training in flying pendulum environment
+
+log_root_path: './src/pybullet-dynamics/humanoid_env/train_neural_cbf_log/'
+
+# latent CBF NN model setting
+model_kwargs:
+  device: 'cuda'
+  gamma: 0.1
+  relaxation_penalty: 5000
+  phi_hidden_dim: 256
+  phi_num_layer: 2
+
+# latent CBF train setting
+train_kwargs:
+  dataset_path: './src/pybullet-dynamics/humanoid_env/data/latent/'
+  lr: 0.01
+  epochs: 100
+  save_epoch_interval: 1
+  lr_steps: 20
+  indices_num: 50
+  train_ratio: 0.8
+
