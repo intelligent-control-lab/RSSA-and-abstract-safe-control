@@ -2,6 +2,7 @@ from typing import Dict
 import numpy as np
 import gym
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 try:
     from SegWay_model import SegWayModel
@@ -36,6 +37,7 @@ class SegWayEnv(gym.Env):
         self.dq_limit = dq_limit
         self.u_limit = u_limit
         self.a_safe_limit = a_safe_limit
+        self.time = 0
 
         self.reset()
 
@@ -101,11 +103,13 @@ class SegWayEnv(gym.Env):
     def step(self, u):
         u = np.clip(u, self.u_limit['low'], self.u_limit['high'])
         self.robot.step(u)
+        self.time += self.robot.dt
         return self.Xr, None, None, None
 
     def reset(self):
         self.robot.q = np.zeros(2)
         self.robot.dq = np.zeros(2)
+        self.time = 0
 
     def render(
         self,
@@ -128,6 +132,9 @@ class SegWayEnv(gym.Env):
         circle = plt.Circle(p_1, self.robot.R, color='b', fill=False) # draw wheel
         ax.add_patch(circle)
         ax.plot([x_lim[0], x_lim[1]], [0.0, 0.0], c='k') # draw ground
+        ax.text(-1, 3, 'time : %.2f' % self.time)
+        ax.text(-1, 2.5, 'velocity : %.2f' % self.robot.dq[0])
+        ax.text(-1, 2, 'angle : %.2f (degree)' % (self.robot.q[1]*180/np.pi))
         plt.axis('equal')
         plt.savefig(save_path + img_name)
         plt.close()
@@ -139,7 +146,7 @@ if __name__ == '__main__':
 
     q_d = np.array([0, 0])
     dq_d = np.array([1, 0])
-    for i in range(960):
+    for i in tqdm(range(960)):
         u = env.robot.PD_control(q_d, dq_d)
         env.step(u)
         
