@@ -1,5 +1,4 @@
 import pickle
-import pybullet as p
 import numpy as np
 import cv2
 import os
@@ -7,6 +6,7 @@ import shutil
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+import imageio
 
 def video_sequential_record(
     movie_name,
@@ -26,6 +26,22 @@ def video_sequential_record(
         img = cv2.imread(fig_path + prefix + str(i) + suffix)
         video.write(img)
     video.release()
+
+def generate_gif(
+    gif_name = 'SegWay_env_test.gif',
+    fig_path = './src/pybullet-dynamics/SegWay_env/imgs/env_test/',
+    gif_path = './src/pybullet-dynamics/SegWay_env/movies/',
+    num_fig = 960,
+    duration = 1/50
+):
+    img_array = []
+    for i in range(num_fig//5):
+        file_path = os.path.join(fig_path, str(i*5)+'.jpg')
+        img = imageio.v2.imread(file_path)
+        img_array.append(img)
+
+    gif_path = os.path.join(gif_path, gif_name)
+    imageio.mimsave(gif_path, img_array, duration=duration)
 
 def draw_GP_confidence_interval(
     mean,
