@@ -20,25 +20,23 @@ class MMAddRSSA(SafetyIndex):
             'k_v': 1.0,
             'beta': 0.0,
         },
-        confidence_level=0.01,
+        sampling=False,
         sample_points_num=10,
         gamma=0.1,
-        sampling=False,
-        get_params_by_sampling = False,
         epsilon_0=0.5,
         epsilon_f=0.05
     ):
         super().__init__(env, safety_index_params)
-        self.confidence_level = confidence_level
         self.sample_points_num = sample_points_num
         self.x_dim = self.env.Xr.shape[0]
         self.u_dim = self.env.g.shape[1]
         self.gamma = gamma
         self.sampling = sampling # similar to fast_SegWay in GaussianRSSA
-        self.modal_params_pred = None
 
         self.epsilon_0=epsilon_0
         self.epsilon_f=epsilon_f
+
+        self.env: SegWayAdditiveNoiseEnv
 
     def get_rho(self, sigma):
         delta = cp.Variable(self.env.f.shape) # (4, 1) in Segway
@@ -77,14 +75,14 @@ class MMAddRSSA(SafetyIndex):
         logger.debug(optimal_o)
         return optimal_o
     
-    def predict_modal_parameters(self):
+    def predict_f_modal_parameters(self):
         '''
-        Get modal parameters by fitting sampled points or acquiring true values directly
+        Get modal parameters of (f + d) by fitting sampled points or acquiring true values directly
         '''
         if self.sampling:
             raise NotImplementedError
         else:
-            self.modal_params_pred = self.env.get_true_model_params()
+            return self.env.get_true_model_params()
 
     def safe_control(self, u_ref):
         # The problem we try to solve is:
@@ -104,9 +102,7 @@ class MMAddRSSA(SafetyIndex):
         #       a. grad_phi @ g @ u <= -gamma(phi) + o_optimal (RHS)
         #       b. control limit: u_min <  u <  u_max
         #       c. u_slack > 0,  the slack variable must be positive
-        
-        if self.modal_params_pred is None:
-            raise ValueError('Predict modal parameters first')
+        modal_params_pred = self.predict_f_modal_parameters()
 
         n = self.u_dim
         P = np.eye(n + 1).astype(float)
@@ -118,7 +114,7 @@ class MMAddRSSA(SafetyIndex):
 
         if phi > 0:
             grad_phi_mul_g = p_phi_p_Xr @ self.env.g
-            RHS = -self.gamma * phi + self.get_optimal_o(self.modal_params_pred)
+            RHS = -self.gamma * phi + self.get_optimal_o(modal_params_pred)
         else:
             grad_phi_mul_g = np.zeros((1, n))
             RHS = 1
@@ -157,7 +153,6 @@ if __name__ == '__main__':
                         'beta': 0.0,
                     },
                     sampling=False)
-    ssa.predict_modal_parameters()
     
     q_d = np.array([0, 0])
     dq_d = np.array([1, 0])
