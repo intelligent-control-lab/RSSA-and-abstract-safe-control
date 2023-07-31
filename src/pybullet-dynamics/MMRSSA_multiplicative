@@ -1,0 +1,263 @@
+from matplotlib import pyplot as plt
+import numpy as np
+import scipy.stats
+from scipy.linalg import block_diag
+from cvxopt import matrix, solvers
+import cvxpy as cp
+from loguru import logger
+from tqdm import tqdm
+
+from SegWay_env.SegWay_multimodal_env import SegWayMultiplicativeNoiseEnv
+from SegWay_env.SegWay_utils import *
+from RSSA_safety_index import SafetyIndex
+
+solvers.options['show_progress'] = False
+
+class MMMulRSSA(SafetyIndex):
+    def __init__(
+        self,
+        env: SegWayMultiplicativeNoiseEnv,
+        safety_index_params={
+            'alpha': 1.0,
+            'k_v': 1.0,
+            'beta': 0.0,
+        },
+        p_init=[0.01, 0.01],
+        gamma=0.1,
+        sampling=False,
+        sample_points_num=10,
+        epsilon_0=0.1,
+        epsilon_f=0.1,
+        num_iterations = 100,
+        fast_SegWay = True
+    ):
+        super().__init__(env, safety_index_params)
+        self.p_init = p_init  # p_i in paper
+        self.sample_points_num = sample_points_num
+        self.x_dim = self.env.Xr.shape[0]
+        self.u_dim = self.env.g.shape[1]
+        self.gamma = gamma
+        self.sampling = sampling
+
+        self.epsilon_0 = epsilon_0  # gradient descent termination condition
+        self.epsilon_f = epsilon_f
+        self.num_iterations = num_iterations  # max gd iterations
+
+        self.fast_SegWay = fast_SegWay
+
+        self.env: SegWayMultiplicativeNoiseEnv
+
+    def predict_f_g_modal_parameters(self):
+        '''
+        Get modal parameters by fitting sampled points or acquiring true values directly
+
+        return
+        modal_params is a list. modal_1_params = modal_params[0], modal_1_params is a dict, keys: 'weight', 'f_mu', 'f_sigma', 'g_mu', 'g_sigma'
+        '''
+        if self.sampling:
+            f_points, g_points = self.env.sample_f_g_points(points_num=100)
+            plt.plot(f_points)
+            raise NotImplementedError
+        else:
+            modal_params = self.env.compute_f_g_modal_parameters()
+        
+        return modal_params
+
+    
+    def get_rho(self, sigma):
+        '''
+        get sigma worse case of grad phi @ f
+        '''
+        delta = cp.Variable(self.env.f.shape) # (4, 1) in Segway
+
+        prob = cp.Problem(
+            cp.Maximize(self.env.get_p_phi_p_Xr(self.safety_index_params) @ delta),
+            [cp.quad_form(delta, np.linalg.inv(sigma)) <= 1]
+        )
+        prob.solve()
+        return prob.value
+
+    def generate_gaussian_safety_con(self, phi):
+        p_phi_p_Xr = self.env.get_p_phi_p_Xr(self.safety_index_params)
+        f_mu, f_sigma, g_mu, g_sigma = self.get_gaussian_f_g()
+        LgP_mu = p_phi_p_Xr @ g_mu
+        LgP_sigma = np.zeros((self.u_dim, self.u_dim))
+        # gx is expanded row first!!!
+        # so the indices should be mapped
+        for i in range(self.u_dim):
+            for j in range(self.u_dim):
+                i_idx = [self.u_dim*k+i for k in range(self.x_dim)]
+                j_idx = [self.u_dim*k+j for k in range(self.x_dim)]
+                LgP_sigma[i, j] = p_phi_p_Xr @ g_sigma[i_idx, :][:, j_idx] @ p_phi_p_Xr.T
+        max_LfP, LgP_mu, LgP_sigma = self.get_gaussian_grad_phi()
+
+
+        c = -LgP_mu.T
+        d = -max_LfP.item() - self.gamma * phi
+
+        return L, c, d
+    
+    def fast_generate_gaussian_safety_con_SegWay(self, phi, confidence_level, modal_param):
+        '''
+        This method can be used only in SegWay env which has u_dim = 1
+        '''
+        p_phi_p_Xr = self.env.get_p_phi_p_Xr(self.safety_index_params)
+        max_LfP, LgP_mu, L = self.env.fast_gaussian_uncertain_bound(p_phi_p_Xr, confidence_level, modal_param)
+        
+        c = -LgP_mu.T
+        d = -max_LfP - self.gamma * phi
+        
+        return L, c, d
+    
+    def safe_control(self, u_ref):
+        # The problem we try to solve is:
+        # || u - u_ref || 
+        # subject to
+        #               A u <= b
+        #       || L.T u || <= d @ u + e
+
+        # And in case there is no solution that satisfies the safety constraints,
+        # we add an extra dim to u as a slack variable. Therefore, the objective becomes:
+        
+        # || u - u_ref || + 10000 * ||u_slack||
+        # (u - u_ref) P_obj (u - u_ref)     # P_obj = I,  P_obj[n+1, n+1] = 100000
+        
+        # And the constraints becomes:
+        # 1. A @ u < b is composed by two parts:
+        #       a. control limit: u_min <  u <  u_max
+        #       b. u_slack > 0,  the slack variable must be positive
+        # 2. || L.T u || <= c @ u + d + u_slack
+        
+        # initialize p = {p_i}
+        p = self.p_init
+
+        # P_obj
+        P_obj = np.eye(self.u_dim + 1).astype(float)
+        P_obj[-1, -1] = 10000
+        
+        # add slack variable to L, c, d
+        phi = self.env.get_phi(self.safety_index_params)
+        modal_params_pred = self.predict_f_g_modal_parameters()
+
+        for iter in range(self.num_iterations):
+            if phi > 0:
+                Ls=[]
+                cs=[]
+                ds=[]
+                for p_i, modal_param in zip(p, modal_params_pred):
+                    logger.debug(p_i)
+                    if self.fast_SegWay:
+                        L, c, d = self.fast_generate_gaussian_safety_con_SegWay(phi, p_i, modal_param)
+                    else:
+                        L, c, d = self.generate_gaussian_safety_con(self.phi)
+                    Ls.append(block_diag(L, np.zeros((1, 1))))
+                    cs.append(np.vstack([c, np.ones((1, 1))]))
+                    ds.append(d)
+            else:
+                Ls = []
+                cs = []
+                ds = []
+            
+            # A:  A_U,  A_slack
+            A_slack = np.zeros((1, self.u_dim + 1))
+            A_slack[0, -1] = -1
+            b_slack = np.zeros((1, 1))
+            A = np.vstack([
+                np.eye(self.u_dim, self.u_dim + 1),
+                -np.eye(self.u_dim, self.u_dim + 1),
+                A_slack,
+            ]).astype(float)
+            b = np.vstack([
+                np.asanyarray(self.env.u_limit['high']).reshape(-1, 1),
+                -np.asanyarray(self.env.u_limit['low']).reshape(-1, 1),
+                b_slack,
+            ])
+
+            u_ref = u_ref.reshape((-1, 1))
+            u_ref = np.vstack([u_ref, np.zeros(1)])
+            u, objective = self.solve_qcqp(u_ref, A, b, P_obj, Ls, cs, ds)
+            u = np.squeeze(u)
+            print(u[-1], objective)
+            if np.abs(u[-1]) > 1e-1:
+                logger.debug(f'u_FI in GaussianRSSA: {u}')
+                self.if_infeasible = True
+            else:
+                self.if_infeasible = False
+            u = u[:-1]
+        return u
+    
+    def solve_qcqp(self, u_ref, A, b, P_obj, Ls, cs, ds):
+        # obj:   (u-u_ref).T @ P @ (u-u_ref)
+        # s.t.  A @ u <= b
+        #       || L_i.T @ u || <= cs_i @ u + ds_i
+        
+        # let du = u - u_ref
+        # obj:   du.T @ P @ du
+        # s.t.  A @ du <= -A @ u_ref + b
+        #       || L_i.T @ u || <= cs_i @ u + ds_i
+        
+        # convert to SOCP
+
+        # We first add an extra dimension for du to as the objective, then
+        # minimize_{u}  mask.T @ du   # [0, ..., 0, 1].T @ du,   the last dimension corresponds to the objective
+        #               || PL @ du ||  <= mask.T @ du
+        #               0 <= -a_i @ du - a_i @ u_ref - b_i
+        #               || L_i.T @ du + L_i.T @ u_ref || <= cs_i @ u + cs_i @ u_ref + ds_i
+        #               where PL = block_diag (the cholesky decomposition of P, [0])
+        
+        # Define and solve the CVXPY problem.
+        n = len(u_ref) + 1
+        du = cp.Variable(n)
+        mask = np.zeros((n, 1))
+        mask[-1, 0] = 1
+
+        A = np.hstack([A, np.zeros((A.shape[0], 1))])
+        PL = np.linalg.cholesky(P_obj)
+        PL = block_diag(PL, np.zeros((1, 1)))
+
+        Ls = [block_diag(L, np.zeros((1, 1))) for L in Ls]
+        cs = [np.vstack([c, np.zeros((1, 1))]) for c in cs]
+        cs = [np.squeeze(c) for c in cs]
+        u_ref = np.vstack([u_ref, np.zeros((1,1))])
+
+        # We use cp.SOC(t, x) to create the SOC constraint ||x||_2 <= t.
+        # # || PL @ du ||  <= mask.T @ du
+        soc_constraints = [cp.SOC(mask.T @ du, PL @ du)]
+        # || L_i.T @ du + L_i.T @ u_ref || <= cs_i @ u + cs_i @ u_ref + ds_i
+        soc_constraints += [cp.SOC(
+            cs[i] @ du + (cs[i] @ u_ref).item() + ds[i],
+            Ls[i].T @ du + np.squeeze(Ls[i].T @ u_ref)
+        ) for i in range(len(Ls))]
+        # 0 <= -a_i @ du - a_i @ u_ref - b_i
+        soc_constraints += [cp.SOC(
+            -A[i, :] @ du - A[i, :] @ u_ref + b[i, :],
+            np.zeros((1, n)) @ du
+        ) for i in range(b.shape[0])]
+        
+        prob = cp.Problem(cp.Minimize(mask.T @ du), soc_constraints)
+        prob.solve()
+
+        return u_ref[:-1] + np.vstack(du.value[:-1]), prob.value ** 2
+
+if __name__ == '__main__':
+
+    env = SegWayMultiplicativeNoiseEnv()
+    env.reset()
+    ssa = MMMulRSSA(env, 
+                    safety_index_params={
+                        'alpha': 2.0,
+                        'k_v': 0.5,
+                        'beta': 0.0,
+                    },
+                    sampling=False)
+    
+    q_d = np.array([0, 0])
+    dq_d = np.array([1, 0])
+    for i in tqdm(range(960)):
+        u = env.robot.PD_control(q_d, dq_d)
+        u = ssa.safe_control(u)
+        # print(env.Xr)
+        env.step(u)
+        env.render(img_name=str(i) + '.jpg', save_path='./src/pybullet-dynamics/SegWay_env/imgs/mm_mul_rssa/')
+
+    generate_gif('mm_mul_rssa.gif', './src/pybullet-dynamics/SegWay_env/imgs/mm_mul_rssa/', duration=0.01)

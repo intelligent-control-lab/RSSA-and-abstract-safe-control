@@ -1,4 +1,6 @@
 import numpy as np
+import cvxpy as cp
+from scipy import stats
 
 try:
     from SegWay_env import SegWayEnv
@@ -11,8 +13,8 @@ class SegWayAdditiveNoiseEnv(SegWayEnv):
     def __init__(
         self,
         use_online_adaptation=True,
-        modal_params = [[0.1, np.array([0.2]*4).reshape(-1,1), np.eye(4, 4)*0.3], 
-                        [-0.2, np.array([0.2]*4).reshape(-1,1), np.eye(4, 4)*0.7]],  
+        modal_params = [[0.3, np.array([0.1]*4).reshape(-1,1), np.eye(4, 4)*0.2], 
+                        [0.7, np.array([-0.2]*4).reshape(-1,1), np.eye(4, 4)*0.2]],  
         # [[modal_1_ratio, modal_1_mu, modal_1_sigma], [modal_2], ...] where modal_1_mu (4,1) modal_1_sigma (4, 4) 
         
         dt=1/240,
@@ -40,130 +42,30 @@ class SegWayAdditiveNoiseEnv(SegWayEnv):
         self.use_online_adaptation = use_online_adaptation
         self.first_predict = True
         self.modal_params = modal_params
-
-    ### Interface for safe control
-    # def param_pred(self):
-    #     '''
-    #     Here we assume the underlying parameter follows a Gaussian process. 
-    #     In SegWay, the mean and std of K_m will be returned.
-        
-    #     In online adaptation part, using EKF:
-    #     - predict:
-    #         - K_m_predict = K_m_update
-    #         - _, R_k**0.5 = GP_predict()
-    #         - P_{k| k - 1} = P_{k - 1| k - 1}
-    #     - update:
-    #         - K_m_obs = get_K_m_data()
-    #         - S_k = P_{k| k - 1} + R_k
-    #         - K_k = P_{k| k - 1} * S_k^{-1} 
-    #         - K_m_update = K_m_predict + K_k * (K_m_obs - K_m_predict)
-    #         - P_{k| k} = (1 - K_k) * P_{k| k - 1}
-    #     '''
-    #     if not self.use_online_adaptation:
-    #         self.K_m_mean = self.K_m_mean_init
-    #         self.K_m_std = self.K_m_std_init
-    #         return self.K_m_mean, self.K_m_std
-        
-    #     # for online adpatation
-    #     R_std = self.K_m_std_init
-    #     if self.first_predict:
-    #         self.first_predict = False
-    #         self.K_m_mean = self.K_m_mean_init
-    #         self.K_m_std = R_std
-    #         return self.K_m_mean, R_std
-    #     else:
-    #         # predict part
-    #         K_m_predict = self.K_m_mean
-    #         P = self.K_m_std ** 2
-    #         std_predict = self.K_m_std
-            
-    #         # update part
-    #         f_obs = self.f[2:, :]
-    #         f_predict = self.get_f_data(K_m_predict)
-    #         p_f_p_K_m = self.get_p_f_p_K_m(K_m_predict)
-    #         S = p_f_p_K_m @ p_f_p_K_m.T * P + R_std**2 * np.eye(2)
-    #         # S = p_f_p_K_m @ p_f_p_K_m.T * P
-    #         K = P * p_f_p_K_m.T @ np.linalg.inv(S)
-    #         K_m_update = K_m_predict + (K @ (f_obs - f_predict)).item()
-    #         P = (1 - (K @ p_f_p_K_m).item()) * P
-    #         self.K_m_mean = K_m_update
-    #         self.K_m_std = P**0.5
-            
-    #         return K_m_predict, std_predict
     
     ### Interface for safe control
     def sample_f_points(self, points_num=10):
         '''
-        For additive noise, noise = modal_1_ratio * N(modal_1_mu, modal_1_sigma) + modal_2_ratio * N(modal_2_mu, modal_2_sigma)
+        Additive noise
         '''
         f_points = []
-        noise_points = []
+        g_points = []
+        weights = [modal_param[0] for modal_param in self.modal_params]
+        mus = [modal_param[1] for modal_param in self.modal_params]
+        sigmas = [modal_param[2] for modal_param in self.modal_params]
         for _ in range(points_num):
             f = self.f
             g = self.g
             noise = np.zeros_like(f)
-            for modal_param in self.modal_params:
-                weight, mu, sigma = modal_param
-                noise += weight * np.random.multivariate_normal(mu, sigma, size=1)
+            modal_index = np.random.choice(a=len(weights), p=weights)
+            noise = np.random.multivariate_normal(mus[modal_index], sigmas[modal_index], size=1)
             f_points.append(f + noise)
-            noise_points.append(noise)
+            g_points.append(g)
 
-        return f_points, noise_points
+        return f_points, g_points
     
     def get_true_model_params(self):
         return self.modal_params
-    
-    # def get_f_data(self, K_m):
-    #     true_K_m = self.robot.K_m
-    #     self.robot.K_m = K_m
-    #     f = self.f[2:, :]
-    #     self.robot.K_m = true_K_m
-    #     return f
-    
-    # def get_p_f_p_K_m(self, K_m):
-    #     # p_f_p_K_m = -M_inv @ D * K_b / R
-    #     true_K_m = self.robot.K_m
-    #     self.robot.K_m = K_m
-    #     M_inv, _, D = self.get_f_coefs()
-    #     p_f_p_K_m = -M_inv @ D * self.robot.K_b / self.robot.R
-    #     self.robot.K_m = true_K_m
-    #     p_f_p_K_m = p_f_p_K_m.reshape(-1, 1)
-    #     return p_f_p_K_m
-
-    # def get_f_coefs(self):
-    #     '''
-    #     Coeficients of f(b_t(K_m)): f = -M_inv @ (C + D * b_t)
-
-    #     where f is env.f[2:]
-    #     '''
-    #     M_inv = np.linalg.pinv(self.robot.M)
-
-    #     _, a = self.robot.q
-    #     dr, da = self.robot.dq
-    #     m = self.robot.m
-    #     L = self.robot.L
-    #     g = self.robot.g
-    #     R = self.robot.R
-
-    #     C = np.zeros(2)
-    #     C[0] = -m * L * sin(a) * da**2
-    #     C[1] = -m * g * L * sin(a) 
-
-    #     D = np.zeros(2)
-    #     D[0] = (dr - R * da) / R
-    #     D[1] = -(dr - R * da)
-
-    #     return M_inv, C, D
-
-    # def get_K_m_data(self):
-    #     f = np.squeeze(self.f)[2:]
-
-    #     M_inv, C, D = self.get_f_coefs()
-    #     x = -f - M_inv @ C
-    #     y = M_inv @ D * self.robot.K_b / self.robot.R
-
-    #     K_m = x[1] / y[1]
-    #     return K_m
 
     def reset(self):
         self.robot.q = np.zeros(2)
@@ -171,31 +73,167 @@ class SegWayAdditiveNoiseEnv(SegWayEnv):
         self.first_predict = True
         self.time=0
         
-    # def fast_gaussian_uncertain_bound(self, p_phi_p_Xr, confidence_level):
-    #     true_K_m = self.robot.K_m
-    #     self.robot.K_m = self.K_m_mean_init
-    #     f_mu = self.f
-    #     g_mu = self.g
-    #     self.robot.K_m = true_K_m
+
+class SegWayMultiplicativeNoiseEnv(SegWayEnv):
+    def __init__(
+        self,
+        use_online_adaptation=True,
+        K_m_modal_params = [[0.3, 2.3, 0.1], 
+                        [0.7, 2.6, 0.2]],  
+        # [[modal_1_ratio, modal_1_mu, modal_1_sigma], [modal_2], ...] where modal_1_mu is scalar, modal_1_sigma is scalar 
         
-    #     # get LfP_max
-    #     LfP_mu = (p_phi_p_Xr @ f_mu).item()
-    #     M_inv, C, D = self.get_f_coefs()
-    #     f_trans = np.zeros((4, 1))
-    #     f_trans[2:, 0] = -M_inv @ D * self.robot.K_b / self.robot.R
-    #     LfP_trans = (p_phi_p_Xr @ f_trans).item()
-    #     LfP_cov = self.K_m_std_init**2 * LfP_trans**2
-    #     LfP_max = scipy.stats.norm.isf(confidence_level) * np.sqrt(LfP_cov) + LfP_mu
+        dt=1/240,
+        K_m=2.524, 
+        K_b=0.189,
+        m_0=52.710, m=44.798, J_0=5.108,
+        L=0.169, l=0.75, R=0.195,
+        g=9.81,
+        q_limit={'low': [-1.0, -np.pi/2], 'high': [1.0, np.pi/2]},
+        dq_limit={'low': [-5.0, -2.0], 'high': [5.0, 2.0]},
+        u_limit={'low': [-20.0], 'high': [20.0]},
+        a_safe_limit={'low': -0.1, 'high': 0.1},
+    ):
+        super().__init__(
+            dt,
+            K_m,
+            K_b,
+            m_0, m, J_0,
+            L, l, R,
+            g,
+            q_limit, dq_limit, u_limit, a_safe_limit,
+        )
         
-    #     # get LgP_mu and LgP_cov
-    #     LgP_mu = p_phi_p_Xr @ g_mu
-    #     g_trans = np.zeros((4, 1))
-    #     g_trans[2:, 0] = M_inv @ np.array([1/self.robot.R, -1]) 
-    #     LgP_trans = (p_phi_p_Xr @ g_trans).item()
-    #     LgP_cov = self.K_m_std_init**2 * LgP_trans**2
+        # for online adaptation part 
+        self.use_online_adaptation = use_online_adaptation
+        self.first_predict = True
+        self.K_m_modal_params = K_m_modal_params
+    
+    ### Interface for safe control
+    def sample_f_g_points(self, points_num=10):
+        '''
+        sample multimodal f and g
+        '''
+        true_K_m = self.robot.K_m
+        f_points = []
+        g_points = []
+        weights = [modal_param[0] for modal_param in self.K_m_modal_params]
+        mus = [modal_param[1] for modal_param in self.K_m_modal_params]
+        sigmas = [modal_param[2] for modal_param in self.K_m_modal_params]
+        for _ in range(points_num):
+            modal_index = np.random.choice(a=len(weights), p=weights)
+            K_m = np.random.normal(mus[modal_index], sigmas[modal_index], size=1)
+            self.robot.K_m = K_m
+            f_points.append(self.f)
+            g_points.append(self.g)
+
+        self.robot.K_m = true_K_m
+        return f_points, g_points
+    
+    def compute_f_g_modal_parameters(self):
+        '''
+        Compute f g modal parameters using dynamic models with out sampling.
+        _____________
+        return:
+        modal_params is a list. modal_1_params = modal_params[0], modal_1_params is a dict, keys: 'weight', 'f_mu', 'f_sigma', 'g_mu', 'g_sigma'
+        '''
+        weights = [modal_param[0] for modal_param in self.K_m_modal_params]
+        mus = [modal_param[1] for modal_param in self.K_m_modal_params]
+        sigmas = [modal_param[2] for modal_param in self.K_m_modal_params]
+
+        modal_params = []
+        for weight, mu, sigma in zip(weights, mus, sigmas):
+            modal_param = dict()
+            true_K_m = self.robot.K_m
+            self.robot.K_m = mu
+            f_mu = self.f
+            g_mu = self.g
+            self.robot.K_m = true_K_m
+            
+            M_inv, C, D = self.get_f_coefs()
+
+            # get Cov(f)
+            f_trans = np.zeros((4, 1))
+            f_trans[2:, 0] = -M_inv @ D * self.robot.K_b / self.robot.R
+            f_cov = sigma**2 * f_trans @ f_trans.T
+
+            # get Cov(g)
+            g_trans = np.zeros((4, 1))
+            g_trans[2:, 0] = M_inv @ np.array([1/self.robot.R, -1])
+            g_cov = sigma**2 * g_trans @ g_trans.T
+
+            modal_param['weight'] = weight
+            modal_param['f_mu'] = f_mu
+            modal_param['f_sigma'] = f_cov
+            modal_param['g_mu'] = g_mu
+            modal_param['g_sigma'] = g_cov
+
+            modal_params.append(modal_param)
+
+        return modal_params
+
+    
+    def get_true_model_params(self):
+        return self.K_m_modal_params
+
+    def reset(self):
+        self.robot.q = np.zeros(2)
+        self.robot.dq = np.zeros(2)
+        self.first_predict = True
+        self.time=0
+
+    def get_f_coefs(self):
+        '''
+        Coeficients of f(b_t(K_m)): f = -M_inv @ (C + D * b_t)
+
+        where f is env.f[2:]
+        '''
+        M_inv = np.linalg.pinv(self.robot.M)
+
+        _, a = self.robot.q
+        dr, da = self.robot.dq
+        m = self.robot.m
+        L = self.robot.L
+        g = self.robot.g
+        R = self.robot.R
+
+        C = np.zeros(2)
+        C[0] = -m * L * np.sin(a) * da**2
+        C[1] = -m * g * L * np.sin(a) 
+
+        D = np.zeros(2)
+        D[0] = (dr - R * da) / R
+        D[1] = -(dr - R * da)
+
+        return M_inv, C, D
+
+    def fast_gaussian_uncertain_bound(self, p_phi_p_Xr, p_i, modal_param):
+        raise NotImplementedError
+        weight, K_m_mu, K_m_sigma = modal_param
+        true_K_m = self.robot.K_m
+        self.robot.K_m = K_m_mu
+        f_mu = self.f
+        g_mu = self.g
+        self.robot.K_m = true_K_m
         
-    #     # get L
-    #     L = np.array([[np.sqrt(LgP_cov)]])
+        # get LfP_max
+        LfP_mu = (p_phi_p_Xr @ f_mu).item()
+        M_inv, C, D = self.get_f_coefs()
+        f_trans = np.zeros((4, 1))
+        f_trans[2:, 0] = -M_inv @ D * self.robot.K_b / self.robot.R
+        LfP_trans = (p_phi_p_Xr @ f_trans).item()
+        LfP_cov = K_m_sigma**2 * LfP_trans**2
+
+        LfP_max = stats.norm.ppf(p_i) * np.sqrt(LfP_cov) + LfP_mu
         
-    #     return LfP_max, LgP_mu, L
+        # get LgP_mu and LgP_cov
+        LgP_mu = p_phi_p_Xr @ g_mu
+        g_trans = np.zeros((4, 1))
+        g_trans[2:, 0] = M_inv @ np.array([1/self.robot.R, -1]) 
+        LgP_trans = (p_phi_p_Xr @ g_trans).item()
+        LgP_cov = K_m_sigma**2 * LgP_trans**2
+        
+        # get L
+        L = np.array([[np.sqrt(LgP_cov)]])  # FIXME: where is chi2 ?
+        
+        return LfP_max, LgP_mu, L
         
