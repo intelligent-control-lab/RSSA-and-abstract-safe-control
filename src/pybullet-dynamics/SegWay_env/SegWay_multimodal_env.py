@@ -207,33 +207,27 @@ class SegWayMultiplicativeNoiseEnv(SegWayEnv):
         return M_inv, C, D
 
     def fast_gaussian_uncertain_bound(self, p_phi_p_Xr, p_i, modal_param):
-        raise NotImplementedError
-        weight, K_m_mu, K_m_sigma = modal_param
-        true_K_m = self.robot.K_m
-        self.robot.K_m = K_m_mu
-        f_mu = self.f
-        g_mu = self.g
-        self.robot.K_m = true_K_m
-        
+        '''
+        There is no optimization problem when computing LfP_max
+        '''
+        f_mu = modal_param['f_mu']
+        f_sigma = modal_param['f_sigma']
+        g_mu = modal_param['g_mu']
+        g_sigma = modal_param['g_sigma']
+
         # get LfP_max
         LfP_mu = (p_phi_p_Xr @ f_mu).item()
-        M_inv, C, D = self.get_f_coefs()
-        f_trans = np.zeros((4, 1))
-        f_trans[2:, 0] = -M_inv @ D * self.robot.K_b / self.robot.R
-        LfP_trans = (p_phi_p_Xr @ f_trans).item()
-        LfP_cov = K_m_sigma**2 * LfP_trans**2
+        LfP_cov = p_phi_p_Xr @ f_sigma @ p_phi_p_Xr.T
 
         LfP_max = stats.norm.ppf(p_i) * np.sqrt(LfP_cov) + LfP_mu
         
         # get LgP_mu and LgP_cov
         LgP_mu = p_phi_p_Xr @ g_mu
-        g_trans = np.zeros((4, 1))
-        g_trans[2:, 0] = M_inv @ np.array([1/self.robot.R, -1]) 
-        LgP_trans = (p_phi_p_Xr @ g_trans).item()
-        LgP_cov = K_m_sigma**2 * LgP_trans**2
+        LgP_cov = p_phi_p_Xr @ g_sigma @ p_phi_p_Xr.T
         
         # get L
-        L = np.array([[np.sqrt(LgP_cov)]])  # FIXME: where is chi2 ?
+        chi2 = stats.chi2.ppf(p_i, 1)
+        L = np.array([[np.sqrt(chi2 * LgP_cov)]])  # add chi2 compare to RSSA_gaussian
         
         return LfP_max, LgP_mu, L
         

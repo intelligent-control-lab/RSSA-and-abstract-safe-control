@@ -49,38 +49,67 @@ class MMMulRSSA(SafetyIndex):
 
     def predict_f_g_modal_parameters(self):
         '''
-        Get modal parameters by fitting sampled points or acquiring true values directly
-
+        Get modal parameters by fitting sampled f&g points or computing using dynamic models (the environment has to support this)
+        __________________
         return
         modal_params is a list. modal_1_params = modal_params[0], modal_1_params is a dict, keys: 'weight', 'f_mu', 'f_sigma', 'g_mu', 'g_sigma'
         '''
         if self.sampling:
             f_points, g_points = self.env.sample_f_g_points(points_num=100)
-            plt.plot(f_points)
-            raise NotImplementedError
+            f_points = np.array(f_points).reshape(self.sample_points_num, -1)
+            g_points_flat = np.array(g_points).reshape(self.sample_points_num, -1, order='F')   # g is expanded column first with order='F'
+            
+            # TODO: Compute multimodal guassian parameters. Notice that f and g are coupled.
+
+            # f_mu = np.mean(f_points, axis=0).reshape(-1, 1)    # shape: (x_dim, 1)
+            # f_sigma = np.cov(f_points.T)
+            # g_mu = np.mean(g_points, axis=0).reshape(self.x_dim, self.u_dim)    # shape: (x_dim, u_dim)
+            # g_sigma = np.cov(g_points.T)
         else:
             modal_params = self.env.compute_f_g_modal_parameters()
         
         return modal_params
 
-    
     def get_rho(self, sigma):
         '''
         get sigma worse case of grad phi @ f
         '''
         delta = cp.Variable(self.env.f.shape) # (4, 1) in Segway
+        p_phi_p_Xr = self.env.get_p_phi_p_Xr(self.safety_index_params)
 
         prob = cp.Problem(
-            cp.Maximize(self.env.get_p_phi_p_Xr(self.safety_index_params) @ delta),
+            cp.Maximize(p_phi_p_Xr @ delta),
             [cp.quad_form(delta, np.linalg.inv(sigma)) <= 1]
         )
         prob.solve()
         return prob.value
 
-    def generate_gaussian_safety_con(self, phi):
+    def get_stable_L(self, Q: np.ndarray):
+        # Q = L @ L.T
+        w, v = np.linalg.eig(Q)
+        w[np.abs(w) < 1e-10] = 0.0
+        w_sqrt = np.sqrt(w)
+        L = v @ np.diag(w_sqrt)
+        L = np.real(L)
+        L[np.abs(L) < 1e-10] = 0.0
+        return L
+
+    def generate_gaussian_safety_con(self, phi, p_i, modal_param):
+        '''
+        || L.T @ u || <= c @ u + d
+        '''
         p_phi_p_Xr = self.env.get_p_phi_p_Xr(self.safety_index_params)
-        f_mu, f_sigma, g_mu, g_sigma = self.get_gaussian_f_g()
-        LgP_mu = p_phi_p_Xr @ g_mu
+        f_mu = modal_param['f_mu']
+        f_sigma = modal_param['f_sigma']
+        g_mu = modal_param['g_mu']
+        g_sigma = modal_param['g_sigma']
+
+        rho = self.get_rho(f_sigma)
+
+        c = -(p_phi_p_Xr @ g_mu).T
+        d = - self.gamma * phi - p_phi_p_Xr @ f_mu - scipy.stats.norm.ppf(p_i) * rho
+
+        ##### compute L
         LgP_sigma = np.zeros((self.u_dim, self.u_dim))
         # gx is expanded row first!!!
         # so the indices should be mapped
@@ -89,11 +118,16 @@ class MMMulRSSA(SafetyIndex):
                 i_idx = [self.u_dim*k+i for k in range(self.x_dim)]
                 j_idx = [self.u_dim*k+j for k in range(self.x_dim)]
                 LgP_sigma[i, j] = p_phi_p_Xr @ g_sigma[i_idx, :][:, j_idx] @ p_phi_p_Xr.T
-        max_LfP, LgP_mu, LgP_sigma = self.get_gaussian_grad_phi()
 
+        chi2 = scipy.stats.chi2.ppf(p_i, self.u_dim)
 
-        c = -LgP_mu.T
-        d = -max_LfP.item() - self.gamma * phi
+        try:
+            # L = np.linalg.cholesky(chi2 * LgP_sigma)
+            L = self.get_stable_L(chi2 * LgP_sigma)
+        except Exception:
+            LgP_sigma = LgP_sigma + 1e-5 * np.eye(LgP_sigma.shape[0])
+            L = np.linalg.cholesky(chi2 * LgP_sigma)
+            print('unsatble LgP_sigma!')
 
         return L, c, d
     
@@ -149,7 +183,7 @@ class MMMulRSSA(SafetyIndex):
                     if self.fast_SegWay:
                         L, c, d = self.fast_generate_gaussian_safety_con_SegWay(phi, p_i, modal_param)
                     else:
-                        L, c, d = self.generate_gaussian_safety_con(self.phi)
+                        L, c, d = self.generate_gaussian_safety_con(phi, p_i, modal_param)
                     Ls.append(block_diag(L, np.zeros((1, 1))))
                     cs.append(np.vstack([c, np.ones((1, 1))]))
                     ds.append(d)
