@@ -31,8 +31,9 @@ class MMMulRSSA(SafetyIndex):
         sample_points_num=10,
         epsilon_0=0.1,
         epsilon_f=0.1,
-        max_gd_iterations = 5,
+        max_gd_iterations = 100,
         alpha = 0.01,
+        beta = 0.1,
         fast_SegWay = False
     ):
         super().__init__(env, safety_index_params)
@@ -47,6 +48,7 @@ class MMMulRSSA(SafetyIndex):
         self.epsilon_f = epsilon_f
         self.max_gd_iterations = max_gd_iterations  # max gd iterations
         self.alpha = alpha # step size in gd
+        self.beta = beta # step size in gd for outer lagrangian multipliers
 
         self.fast_SegWay = fast_SegWay
 
@@ -200,6 +202,10 @@ class MMMulRSSA(SafetyIndex):
         
         # initialize p = {p_i}
         p = self.p_init
+        diff_p = torch.tensor(p, requires_grad=True) # differentiable p for gradient computation using pytorch
+
+        lambdas_init = np.ones(1+2*len(p))*10
+        lambdas = torch.tensor(lambdas_init, requires_grad=True) # lagrangian multipliers for outer gd loop
 
         # P_obj
         P_obj = np.eye(self.u_dim + 1).astype(float)
@@ -232,9 +238,9 @@ class MMMulRSSA(SafetyIndex):
             num_iter = 1
 
         for iter in range(num_iter):
-            # differentiable p for gradient computation using pytorch
-            diff_p = torch.tensor(p, requires_grad=True)
-
+            '''
+            gradient descent step: min d({pi}) + lambdas[0] * ((1-epsilon_f)-sum(weight*p_i)) + sum(lambdas[ ]*(p_i-1)) + sum(lambdas[]*(-p_i))
+            '''
             # add slack variable to L, c, d
             Ls=[]
             cs=[]
@@ -252,7 +258,7 @@ class MMMulRSSA(SafetyIndex):
             else:
                 pass
             
-            u, opt_value = self.solve_qcqp(copy.deepcopy(u_ref), A, b, P_obj, Ls, cs, ds, diff_Ls, diff_ds)
+            u, opt_value, value_for_grad = self.solve_qcqp(copy.deepcopy(u_ref), A, b, P_obj, Ls, cs, ds, diff_Ls, diff_ds)
             u = np.squeeze(u)
             logger.debug(f'u[-1] = {u[-1]}')
             logger.debug(f'opt_value = {opt_value}')
@@ -264,11 +270,24 @@ class MMMulRSSA(SafetyIndex):
 
             # update p
             if len(Ls) > 0:
+                modal_dim = len(Ls)
+                for i in range(modal_dim):
+                    value_for_grad += lambdas[0]*(modal_params_pred[i]['weight']*diff_p[i]-(1 - self.epsilon_f)) \
+                                     + lambdas[i+1]*(diff_p[i]-1)+lambdas[1+modal_dim+i]*(-diff_p[i])
+                value_for_grad.backward()
+
                 diff_p.data -= self.alpha * diff_p.grad.data
                 diff_p.detach_()
-                diff_p.clamp_(0.0001, 0.9999)
+                diff_p.clamp_(0.00001, 0.99999)
                 p = np.array(diff_p)
-                print(p)
+                diff_p = diff_p.clone().detach().requires_grad_(True)
+                logger.debug(f'p={p}')
+
+                lambdas.data += self.beta * lambdas.grad.data
+                lambdas.detach_()
+                lambdas.clamp_(min=0)
+                lambdas = lambdas.clone().detach().requires_grad_(True)
+                logger.debug(f'lambdas={lambdas}')
 
         return u
     
@@ -326,18 +345,17 @@ class MMMulRSSA(SafetyIndex):
         prob = cp.Problem(cp.Minimize(mask.T @ du), soc_constraints)
         prob.solve()
 
+        value_for_grad = 0
         if len(Ls) > 0:
             '''
             compute gradient of optimal value w.r.t. p_i using the envelope theorem
-            value_for_grad = sum_i(lambda*(|| L(p)@du || - d(p)))            
+            value_for_grad += sum_i(dual_value*(|| L(p)@du || - d(p)))
             '''
-            value_for_grad = 0
             for i in range(len(Ls)):
                 dual_value = torch.from_numpy(soc_constraints[i].dual_value[0])
-                value_for_grad += dual_value * (torch.norm(diff_Ls[i] @ torch.from_numpy(du.value), p=2) - diff_ds[i])
-            value_for_grad.backward()
+                value_for_grad += dual_value * (torch.norm(diff_Ls[i] @ torch.from_numpy(du.value), p=2) - diff_ds[i]) \
 
-        return u_ref[:-1] + np.vstack(du.value[:-1]), prob.value
+        return u_ref[:-1] + np.vstack(du.value[:-1]), prob.value, value_for_grad
 
 if __name__ == '__main__':
 
