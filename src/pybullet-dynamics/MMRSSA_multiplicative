@@ -25,16 +25,17 @@ class MMMulRSSA(SafetyIndex):
             'k_v': 1.0,
             'beta': 0.0,
         },
-        p_init=[0.01, 0.01],
+        p_init=[0.9, 0.9],
         gamma=0.1,
         sampling=False,
         sample_points_num=10,
         epsilon_0=0.1,
-        epsilon_f=0.1,
-        max_gd_iterations = 100,
-        alpha = 0.01,
+        epsilon_f=0.01,
+        max_gd_iterations = 400,
+        alpha = 0.001,
         beta = 0.1,
-        fast_SegWay = False
+        fast_SegWay = False, 
+        debug=False
     ):
         super().__init__(env, safety_index_params)
         self.p_init = p_init  # p_i in paper
@@ -51,6 +52,8 @@ class MMMulRSSA(SafetyIndex):
         self.beta = beta # step size in gd for outer lagrangian multipliers
 
         self.fast_SegWay = fast_SegWay
+
+        self.debug = debug
 
         self.env: SegWayMultiplicativeNoiseEnv
 
@@ -115,10 +118,10 @@ class MMMulRSSA(SafetyIndex):
         g_mu = modal_param['g_mu']
         g_sigma = modal_param['g_sigma']
 
-        norm_ppf = stats.norm.ppf(np.sqrt(p_i))
+        norm_ppf = stats.norm.ppf((np.sqrt(p_i)+1)/2)
         chi2_ppf = stats.chi2.ppf(np.sqrt(p_i), self.u_dim)
         normal = torch.distributions.Normal(0, 1)
-        diff_norm_ppf = normal.icdf(torch.sqrt(diff_p_i))
+        diff_norm_ppf = normal.icdf((torch.sqrt(diff_p_i)+1)/2)
         diff_chi2_ppf = DifferentiableChi2ppf.apply(torch.sqrt(diff_p_i), self.u_dim)
 
         if self.fast_SegWay:
@@ -204,7 +207,8 @@ class MMMulRSSA(SafetyIndex):
         p = self.p_init
         diff_p = torch.tensor(p, requires_grad=True) # differentiable p for gradient computation using pytorch
 
-        lambdas_init = np.ones(1+2*len(p))*10
+        lambdas_init = np.zeros(1+2*len(p), dtype=np.float32)
+        lambdas_init[0]=15
         lambdas = torch.tensor(lambdas_init, requires_grad=True) # lagrangian multipliers for outer gd loop
 
         # P_obj
@@ -231,6 +235,11 @@ class MMMulRSSA(SafetyIndex):
 
         u_ref = u_ref.reshape((-1, 1))
         u_ref = np.vstack([u_ref, np.zeros(1)])
+
+        if self.debug:
+            p_list = []
+            value_for_grad_list = []
+            opt_value_list = []
 
         if phi > 0:
             num_iter = self.max_gd_iterations
@@ -260,8 +269,8 @@ class MMMulRSSA(SafetyIndex):
             
             u, opt_value, value_for_grad = self.solve_qcqp(copy.deepcopy(u_ref), A, b, P_obj, Ls, cs, ds, diff_Ls, diff_ds)
             u = np.squeeze(u)
-            logger.debug(f'u[-1] = {u[-1]}')
-            logger.debug(f'opt_value = {opt_value}')
+            # logger.debug(f'u[-1] = {u[-1]}')
+            # logger.debug(f'opt_value = {opt_value}')
             if np.abs(u[-1]) > 1e-1:
                 logger.debug(f'u_FI in MMMulRSSA: {u}')
             else:
@@ -270,10 +279,11 @@ class MMMulRSSA(SafetyIndex):
 
             # update p
             if len(Ls) > 0:
+                weights = torch.tensor([modal_param['weight'] for modal_param in modal_params_pred])
                 modal_dim = len(Ls)
-                for i in range(modal_dim):
-                    value_for_grad += lambdas[0]*(modal_params_pred[i]['weight']*diff_p[i]-(1 - self.epsilon_f)) \
-                                     + lambdas[i+1]*(diff_p[i]-1)+lambdas[1+modal_dim+i]*(-diff_p[i])
+                value_for_grad += lambdas[0]*((1 - self.epsilon_f) - torch.dot(weights, diff_p)) \
+                                + torch.dot(lambdas[1:1+modal_dim], diff_p-1) \
+                                + torch.dot(lambdas[1+modal_dim:], -diff_p)
                 value_for_grad.backward()
 
                 diff_p.data -= self.alpha * diff_p.grad.data
@@ -281,13 +291,87 @@ class MMMulRSSA(SafetyIndex):
                 diff_p.clamp_(0.00001, 0.99999)
                 p = np.array(diff_p)
                 diff_p = diff_p.clone().detach().requires_grad_(True)
-                logger.debug(f'p={p}')
 
                 lambdas.data += self.beta * lambdas.grad.data
                 lambdas.detach_()
                 lambdas.clamp_(min=0)
                 lambdas = lambdas.clone().detach().requires_grad_(True)
-                logger.debug(f'lambdas={lambdas}')
+                logger.debug(f'lambdas={lambdas.data}')
+
+                if self.debug:
+                    p_list.append(p)
+                    value_for_grad_list.append(value_for_grad.item())
+                    opt_value_list.append(opt_value)
+
+        if self.debug and p_list:
+            ax1 = plt.subplot(131)
+            p1, p2 = zip(*p_list)
+            ax1.plot(p1, p2, 'o-')
+            ax1.plot(p1[0], p2[0], 'o', color='red') 
+            ax1.set_xlabel('p1')
+            ax1.set_xlabel('p2')
+
+            ax2 = plt.subplot(132)
+            ax2.plot(value_for_grad_list) 
+
+            ax3 = plt.subplot(133)
+            ax3.plot(opt_value_list)
+
+            plt.show()
+
+        ###########################
+        #  Plot landscape
+        if False:
+            x = np.linspace(0.7, 1, 20)
+            y = np.linspace(0.7, 1, 20)
+            X, Y = np.meshgrid(x, y)
+            opt_value_list = np.empty(X.shape)
+            value_for_grad_list = np.empty(X.shape)
+
+            for i in range(X.shape[0]):
+                for j in range(X.shape[1]):
+                    p=[X[i,j], Y[i,j]]
+                    '''
+                    gradient descent step: min d({pi}) + lambdas[0] * ((1-epsilon_f)-sum(weight*p_i)) + sum(lambdas[ ]*(p_i-1)) + sum(lambdas[]*(-p_i))
+                    '''
+                    # add slack variable to L, c, d
+                    Ls=[]
+                    cs=[]
+                    ds=[]
+                    diff_Ls = []
+                    diff_ds = []
+                    if phi > 0:
+                        for p_i, diff_p_i, modal_param in zip(p, diff_p, modal_params_pred):
+                            L, c, d, diff_L, diff_d = self.generate_gaussian_safety_con(phi, p_i, diff_p_i, modal_param)
+                            Ls.append(block_diag(L, np.zeros((1, 1))))
+                            cs.append(np.vstack([c, np.ones((1, 1))]))
+                            ds.append(d)
+                            diff_Ls.append(torch.block_diag(diff_L, torch.zeros((1, 1), dtype=torch.float64)))
+                            diff_ds.append(diff_d)
+                    else:
+                        pass
+                    
+                    u, opt_value, value_for_grad = self.solve_qcqp(copy.deepcopy(u_ref), A, b, P_obj, Ls, cs, ds, diff_Ls, diff_ds)
+                    u = np.squeeze(u)
+                    u = u[:-1]
+
+                    if len(Ls) > 0:
+                        weights = torch.tensor([modal_param['weight'] for modal_param in modal_params_pred])
+                        modal_dim = len(Ls)
+                        value_for_grad += lambdas[0]*((1 - self.epsilon_f) - torch.dot(weights, diff_p))
+
+                        opt_value_list[i,j]=opt_value
+                        value_for_grad_list[i,j]=value_for_grad.item()
+            
+            if Ls:
+                fig, (ax1, ax2) = plt.subplots(1, 2)
+                CS = ax1.contourf(X, Y, opt_value_list)
+                ax1.clabel(CS, inline=True, fontsize=10)
+
+                CS = ax2.contourf(X, Y, value_for_grad_list)
+                ax2.clabel(CS, inline=True, fontsize=10)
+
+                plt.show()
 
         return u
     
@@ -368,7 +452,8 @@ if __name__ == '__main__':
                         'beta': 0.0,
                     },
                     sampling=False,
-                    fast_SegWay=True)
+                    fast_SegWay=False,
+                    debug=True)
     
     q_d = np.array([0, 0])
     dq_d = np.array([1, 0])
