@@ -1,15 +1,18 @@
 from matplotlib import pyplot as plt
 import numpy as np
-import scipy.stats
+import scipy.stats as stats
 from scipy.linalg import block_diag
 from cvxopt import matrix, solvers
 import cvxpy as cp
 from loguru import logger
 from tqdm import tqdm
+import copy
+import torch
 
 from SegWay_env.SegWay_multimodal_env import SegWayMultiplicativeNoiseEnv
 from SegWay_env.SegWay_utils import *
 from RSSA_safety_index import SafetyIndex
+from MMRSSA_utils import DifferentiableChi2ppf
 
 solvers.options['show_progress'] = False
 
@@ -28,8 +31,8 @@ class MMMulRSSA(SafetyIndex):
         sample_points_num=10,
         epsilon_0=0.1,
         epsilon_f=0.1,
-        num_iterations = 100,
-        fast_SegWay = True
+        max_gd_iterations = 5,
+        fast_SegWay = False
     ):
         super().__init__(env, safety_index_params)
         self.p_init = p_init  # p_i in paper
@@ -41,7 +44,7 @@ class MMMulRSSA(SafetyIndex):
 
         self.epsilon_0 = epsilon_0  # gradient descent termination condition
         self.epsilon_f = epsilon_f
-        self.num_iterations = num_iterations  # max gd iterations
+        self.max_gd_iterations = max_gd_iterations  # max gd iterations
 
         self.fast_SegWay = fast_SegWay
 
@@ -77,6 +80,7 @@ class MMMulRSSA(SafetyIndex):
         delta = cp.Variable(self.env.f.shape) # (4, 1) in Segway
         p_phi_p_Xr = self.env.get_p_phi_p_Xr(self.safety_index_params)
 
+        sigma += 0.00001 * np.eye(sigma.shape[0])
         prob = cp.Problem(
             cp.Maximize(p_phi_p_Xr @ delta),
             [cp.quad_form(delta, np.linalg.inv(sigma)) <= 1]
@@ -94,9 +98,12 @@ class MMMulRSSA(SafetyIndex):
         L[np.abs(L) < 1e-10] = 0.0
         return L
 
-    def generate_gaussian_safety_con(self, phi, p_i, modal_param):
+    def generate_gaussian_safety_con(self, phi, p_i, diff_p_i: torch.Tensor, modal_param):
         '''
         || L.T @ u || <= c @ u + d
+
+        d of the two methods are not exactly equal
+        Generate differentiable L and d as well.
         '''
         p_phi_p_Xr = self.env.get_p_phi_p_Xr(self.safety_index_params)
         f_mu = modal_param['f_mu']
@@ -104,44 +111,71 @@ class MMMulRSSA(SafetyIndex):
         g_mu = modal_param['g_mu']
         g_sigma = modal_param['g_sigma']
 
-        rho = self.get_rho(f_sigma)
+        norm_ppf = stats.norm.ppf(np.sqrt(p_i))
+        chi2_ppf = stats.chi2.ppf(np.sqrt(p_i), self.u_dim)
+        normal = torch.distributions.Normal(0, 1)
+        diff_norm_ppf = normal.icdf(torch.sqrt(diff_p_i))
+        diff_chi2_ppf = DifferentiableChi2ppf.apply(torch.sqrt(diff_p_i), self.u_dim)
 
-        c = -(p_phi_p_Xr @ g_mu).T
-        d = - self.gamma * phi - p_phi_p_Xr @ f_mu - scipy.stats.norm.ppf(p_i) * rho
+        if self.fast_SegWay:
+            '''
+            This method can be used only in SegWay env which has u_dim = 1
+            There is no optimization problem when computing LfP_max
+            '''
 
-        ##### compute L
-        LgP_sigma = np.zeros((self.u_dim, self.u_dim))
-        # gx is expanded row first!!!
-        # so the indices should be mapped
-        for i in range(self.u_dim):
-            for j in range(self.u_dim):
-                i_idx = [self.u_dim*k+i for k in range(self.x_dim)]
-                j_idx = [self.u_dim*k+j for k in range(self.x_dim)]
-                LgP_sigma[i, j] = p_phi_p_Xr @ g_sigma[i_idx, :][:, j_idx] @ p_phi_p_Xr.T
+            # get LfP_max
+            LfP_mu = (p_phi_p_Xr @ f_mu).item()
+            LfP_cov = p_phi_p_Xr @ f_sigma @ p_phi_p_Xr.T
 
-        chi2 = scipy.stats.chi2.ppf(p_i, self.u_dim)
+            LfP_max = norm_ppf * np.sqrt(LfP_cov) + LfP_mu
+            diff_LfP_max = diff_norm_ppf * torch.from_numpy(np.sqrt(LfP_cov)) + LfP_mu
+            
+            # get LgP_mu and LgP_cov
+            LgP_mu = p_phi_p_Xr @ g_mu
+            LgP_cov = p_phi_p_Xr @ g_sigma @ p_phi_p_Xr.T
+            
+            # get L
+            L = np.array(np.sqrt(chi2_ppf * LgP_cov))  # add chi2 compare to RSSA_gaussian
 
-        try:
-            # L = np.linalg.cholesky(chi2 * LgP_sigma)
-            L = self.get_stable_L(chi2 * LgP_sigma)
-        except Exception:
-            LgP_sigma = LgP_sigma + 1e-5 * np.eye(LgP_sigma.shape[0])
-            L = np.linalg.cholesky(chi2 * LgP_sigma)
-            print('unsatble LgP_sigma!')
+            diff_L = torch.sqrt(diff_chi2_ppf * LfP_cov.item())
 
-        return L, c, d
-    
-    def fast_generate_gaussian_safety_con_SegWay(self, phi, confidence_level, modal_param):
-        '''
-        This method can be used only in SegWay env which has u_dim = 1
-        '''
-        p_phi_p_Xr = self.env.get_p_phi_p_Xr(self.safety_index_params)
-        max_LfP, LgP_mu, L = self.env.fast_gaussian_uncertain_bound(p_phi_p_Xr, confidence_level, modal_param)
-        
-        c = -LgP_mu.T
-        d = -max_LfP - self.gamma * phi
-        
-        return L, c, d
+            c = -LgP_mu.T
+            d = -LfP_max - self.gamma * phi
+            d = d.item()
+
+            diff_d = -diff_LfP_max - self.gamma * phi
+            diff_d.squeeze()
+            
+        else:
+            '''
+            General method 
+            '''
+            rho = self.get_rho(f_sigma)
+
+            c = -(p_phi_p_Xr @ g_mu).T
+            d = - self.gamma * phi - p_phi_p_Xr @ f_mu - norm_ppf * rho
+            d = d.item()
+
+            diff_d = torch.from_numpy(- self.gamma * phi - p_phi_p_Xr @ f_mu) - diff_norm_ppf * rho
+            diff_d.squeeze()
+
+            ##### compute L
+            LgP_sigma = p_phi_p_Xr @ g_sigma @ p_phi_p_Xr.T  # TODO: what if u_dim > 1
+
+            try:
+                L_LgP = np.linalg.cholesky(LgP_sigma)
+                # L = self.get_stable_L(chi2_ppf * LgP_sigma) # TODO: Why use this?
+                L = np.sqrt(chi2_ppf) * L_LgP
+            except Exception:
+                LgP_sigma = LgP_sigma + 1e-5 * np.eye(LgP_sigma.shape[0])
+                L_LgP = np.linalg.cholesky(LgP_sigma)
+                L = np.sqrt(chi2_ppf) * L_LgP
+                print('unsatble LgP_sigma!')
+                exit()
+            
+            diff_L = torch.sqrt(diff_chi2_ppf) * torch.from_numpy(L_LgP)
+
+        return L, c, d, diff_L, diff_d
     
     def safe_control(self, u_ref):
         # The problem we try to solve is:
@@ -164,26 +198,47 @@ class MMMulRSSA(SafetyIndex):
         
         # initialize p = {p_i}
         p = self.p_init
+        # differentiable p for gradient computation using pytorch
+        diff_p = torch.tensor(p, requires_grad=True)
 
         # P_obj
         P_obj = np.eye(self.u_dim + 1).astype(float)
         P_obj[-1, -1] = 10000
         
-        # add slack variable to L, c, d
         phi = self.env.get_phi(self.safety_index_params)
         modal_params_pred = self.predict_f_g_modal_parameters()
 
-        for iter in range(self.num_iterations):
+        # A:  A_U,  A_slack
+        A_slack = np.zeros((1, self.u_dim + 1))
+        A_slack[0, -1] = -1
+        b_slack = np.zeros((1, 1))
+        A = np.vstack([
+            np.eye(self.u_dim, self.u_dim + 1),
+            -np.eye(self.u_dim, self.u_dim + 1),
+            A_slack,
+        ]).astype(float)
+        b = np.vstack([
+            np.asanyarray(self.env.u_limit['high']).reshape(-1, 1),
+            -np.asanyarray(self.env.u_limit['low']).reshape(-1, 1),
+            b_slack,
+        ])
+
+        u_ref = u_ref.reshape((-1, 1))
+        u_ref = np.vstack([u_ref, np.zeros(1)])
+
+        if phi > 0:
+            num_iter = self.max_gd_iterations
+        else:
+            num_iter = 1
+
+        for iter in range(num_iter):
+            # add slack variable to L, c, d
             if phi > 0:
                 Ls=[]
                 cs=[]
                 ds=[]
-                for p_i, modal_param in zip(p, modal_params_pred):
-                    logger.debug(p_i)
-                    if self.fast_SegWay:
-                        L, c, d = self.fast_generate_gaussian_safety_con_SegWay(phi, p_i, modal_param)
-                    else:
-                        L, c, d = self.generate_gaussian_safety_con(phi, p_i, modal_param)
+                for p_i, diff_p_i, modal_param in zip(p, diff_p, modal_params_pred):
+                    L, c, d, _, _ = self.generate_gaussian_safety_con(phi, p_i, diff_p_i, modal_param)
                     Ls.append(block_diag(L, np.zeros((1, 1))))
                     cs.append(np.vstack([c, np.ones((1, 1))]))
                     ds.append(d)
@@ -192,35 +247,18 @@ class MMMulRSSA(SafetyIndex):
                 cs = []
                 ds = []
             
-            # A:  A_U,  A_slack
-            A_slack = np.zeros((1, self.u_dim + 1))
-            A_slack[0, -1] = -1
-            b_slack = np.zeros((1, 1))
-            A = np.vstack([
-                np.eye(self.u_dim, self.u_dim + 1),
-                -np.eye(self.u_dim, self.u_dim + 1),
-                A_slack,
-            ]).astype(float)
-            b = np.vstack([
-                np.asanyarray(self.env.u_limit['high']).reshape(-1, 1),
-                -np.asanyarray(self.env.u_limit['low']).reshape(-1, 1),
-                b_slack,
-            ])
-
-            u_ref = u_ref.reshape((-1, 1))
-            u_ref = np.vstack([u_ref, np.zeros(1)])
-            u, objective = self.solve_qcqp(u_ref, A, b, P_obj, Ls, cs, ds)
+            u, opt_value, p_value_p_pi = self.solve_qcqp(copy.deepcopy(u_ref), A, b, P_obj, Ls, cs, ds, p, modal_params_pred)
             u = np.squeeze(u)
-            print(u[-1], objective)
+            logger.debug(f'u[-1] = {u[-1]}')
+            logger.debug(f'opt_value = {opt_value}')
             if np.abs(u[-1]) > 1e-1:
-                logger.debug(f'u_FI in GaussianRSSA: {u}')
-                self.if_infeasible = True
+                logger.debug(f'u_FI in MMMulRSSA: {u}')
             else:
-                self.if_infeasible = False
+                pass
             u = u[:-1]
         return u
     
-    def solve_qcqp(self, u_ref, A, b, P_obj, Ls, cs, ds):
+    def solve_qcqp(self, u_ref, A, b, P_obj, Ls, cs, ds, p, modal_params_pred):
         # obj:   (u-u_ref).T @ P @ (u-u_ref)
         # s.t.  A @ u <= b
         #       || L_i.T @ u || <= cs_i @ u + ds_i
@@ -255,13 +293,14 @@ class MMMulRSSA(SafetyIndex):
         u_ref = np.vstack([u_ref, np.zeros((1,1))])
 
         # We use cp.SOC(t, x) to create the SOC constraint ||x||_2 <= t.
-        # # || PL @ du ||  <= mask.T @ du
-        soc_constraints = [cp.SOC(mask.T @ du, PL @ du)]
         # || L_i.T @ du + L_i.T @ u_ref || <= cs_i @ u + cs_i @ u_ref + ds_i
+        soc_constraints = []
         soc_constraints += [cp.SOC(
             cs[i] @ du + (cs[i] @ u_ref).item() + ds[i],
             Ls[i].T @ du + np.squeeze(Ls[i].T @ u_ref)
         ) for i in range(len(Ls))]
+        # # || PL @ du ||  <= mask.T @ du
+        soc_constraints += [cp.SOC(mask.T @ du, PL @ du)]
         # 0 <= -a_i @ du - a_i @ u_ref - b_i
         soc_constraints += [cp.SOC(
             -A[i, :] @ du - A[i, :] @ u_ref + b[i, :],
@@ -271,7 +310,18 @@ class MMMulRSSA(SafetyIndex):
         prob = cp.Problem(cp.Minimize(mask.T @ du), soc_constraints)
         prob.solve()
 
-        return u_ref[:-1] + np.vstack(du.value[:-1]), prob.value ** 2
+        if len(Ls) > 0:
+            '''
+            compute gradient of optimal value w.r.t. p_i using the envelope theorem
+            value_for_grad = sum_i(lambda*(|| L(p)@du || - d(p)))            
+            '''
+            # value_for_grad = 
+            p_value_p_pi = None
+        else:
+            p_value_p_pi = None
+
+        logger.debug(soc_constraints[0].dual_value[0])
+        return u_ref[:-1] + np.vstack(du.value[:-1]), prob.value, p_value_p_pi
 
 if __name__ == '__main__':
 
@@ -283,7 +333,8 @@ if __name__ == '__main__':
                         'k_v': 0.5,
                         'beta': 0.0,
                     },
-                    sampling=False)
+                    sampling=False,
+                    fast_SegWay=True)
     
     q_d = np.array([0, 0])
     dq_d = np.array([1, 0])

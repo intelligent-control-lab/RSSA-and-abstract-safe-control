@@ -1,6 +1,4 @@
 import numpy as np
-import cvxpy as cp
-from scipy import stats
 
 try:
     from SegWay_env import SegWayEnv
@@ -205,29 +203,3 @@ class SegWayMultiplicativeNoiseEnv(SegWayEnv):
         D[1] = -(dr - R * da)
 
         return M_inv, C, D
-
-    def fast_gaussian_uncertain_bound(self, p_phi_p_Xr, p_i, modal_param):
-        '''
-        There is no optimization problem when computing LfP_max
-        '''
-        f_mu = modal_param['f_mu']
-        f_sigma = modal_param['f_sigma']
-        g_mu = modal_param['g_mu']
-        g_sigma = modal_param['g_sigma']
-
-        # get LfP_max
-        LfP_mu = (p_phi_p_Xr @ f_mu).item()
-        LfP_cov = p_phi_p_Xr @ f_sigma @ p_phi_p_Xr.T
-
-        LfP_max = stats.norm.ppf(p_i) * np.sqrt(LfP_cov) + LfP_mu
-        
-        # get LgP_mu and LgP_cov
-        LgP_mu = p_phi_p_Xr @ g_mu
-        LgP_cov = p_phi_p_Xr @ g_sigma @ p_phi_p_Xr.T
-        
-        # get L
-        chi2 = stats.chi2.ppf(p_i, 1)
-        L = np.array([[np.sqrt(chi2 * LgP_cov)]])  # add chi2 compare to RSSA_gaussian
-        
-        return LfP_max, LgP_mu, L
-        
