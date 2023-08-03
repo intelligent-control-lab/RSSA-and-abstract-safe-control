@@ -208,7 +208,7 @@ class MMMulRSSA(SafetyIndex):
         diff_p = torch.tensor(p, requires_grad=True) # differentiable p for gradient computation using pytorch
 
         lambdas_init = np.zeros(1+2*len(p), dtype=np.float32)
-        lambdas_init[0]=15
+        lambdas_init[0]=10
         lambdas = torch.tensor(lambdas_init, requires_grad=True) # lagrangian multipliers for outer gd loop
 
         # P_obj
@@ -309,13 +309,15 @@ class MMMulRSSA(SafetyIndex):
             ax1.plot(p1, p2, 'o-')
             ax1.plot(p1[0], p2[0], 'o', color='red') 
             ax1.set_xlabel('p1')
-            ax1.set_xlabel('p2')
+            ax1.set_ylabel('p2')
 
             ax2 = plt.subplot(132)
-            ax2.plot(value_for_grad_list) 
+            ax2.plot(value_for_grad_list)
+            ax2.set_ylabel('value for grad') 
 
             ax3 = plt.subplot(133)
             ax3.plot(opt_value_list)
+            ax3.set_ylabel('opt value')
 
             plt.show()
 
@@ -452,7 +454,7 @@ if __name__ == '__main__':
                         'beta': 0.0,
                     },
                     sampling=False,
-                    fast_SegWay=False,
+                    fast_SegWay=True,
                     debug=True)
     
     q_d = np.array([0, 0])
