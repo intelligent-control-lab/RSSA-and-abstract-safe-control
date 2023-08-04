@@ -35,13 +35,14 @@ def generate_gif(
     duration = 1/50
 ):
     img_array = []
-    for i in range(num_fig//5):
-        file_path = os.path.join(fig_path, str(i*5)+'.jpg')
+    for i in range(num_fig//10):
+        file_path = os.path.join(fig_path, str(i*10)+'.jpg')
         img = imageio.v2.imread(file_path)
         img_array.append(img)
 
     gif_path = os.path.join(gif_path, gif_name)
     imageio.mimsave(gif_path, img_array, duration=duration)
+    print('gif generated in ' + gif_path)
 
 def draw_GP_confidence_interval(
     mean,

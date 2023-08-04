@@ -33,7 +33,7 @@ class MMMulRSSA(SafetyIndex):
         epsilon_f=0.01,
         max_gd_iterations = 400,
         alpha = 0.001,
-        beta = 0.1,
+        beta = 0.01,
         fast_SegWay = False, 
         debug=False
     ):
@@ -70,7 +70,7 @@ class MMMulRSSA(SafetyIndex):
             g_points_flat = np.array(g_points).reshape(self.sample_points_num, -1, order='F')   # g is expanded column first with order='F'
             
             # TODO: Compute multimodal guassian parameters. Notice that f and g are coupled.
-
+            raise NotImplementedError
             # f_mu = np.mean(f_points, axis=0).reshape(-1, 1)    # shape: (x_dim, 1)
             # f_sigma = np.cov(f_points.T)
             # g_mu = np.mean(g_points, axis=0).reshape(self.x_dim, self.u_dim)    # shape: (x_dim, u_dim)
@@ -296,9 +296,9 @@ class MMMulRSSA(SafetyIndex):
                 lambdas.detach_()
                 lambdas.clamp_(min=0)
                 lambdas = lambdas.clone().detach().requires_grad_(True)
-                logger.debug(f'lambdas={lambdas.data}')
 
                 if self.debug:
+                    logger.debug(f'lambdas={lambdas.data}')
                     p_list.append(p)
                     value_for_grad_list.append(value_for_grad.item())
                     opt_value_list.append(opt_value)
@@ -324,8 +324,8 @@ class MMMulRSSA(SafetyIndex):
         ###########################
         #  Plot landscape
         if False:
-            x = np.linspace(0.7, 1, 20)
-            y = np.linspace(0.7, 1, 20)
+            x = np.linspace(0.0, 1, 20)
+            y = np.linspace(0.0, 1, 20)
             X, Y = np.meshgrid(x, y)
             opt_value_list = np.empty(X.shape)
             value_for_grad_list = np.empty(X.shape)
@@ -455,7 +455,7 @@ if __name__ == '__main__':
                     },
                     sampling=False,
                     fast_SegWay=True,
-                    debug=True)
+                    debug=False)
     
     q_d = np.array([0, 0])
     dq_d = np.array([1, 0])

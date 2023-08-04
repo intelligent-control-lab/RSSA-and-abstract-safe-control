@@ -134,7 +134,7 @@ class SegWayEnv(gym.Env):
         ax.plot([x_lim[0], x_lim[1]], [0.0, 0.0], c='k') # draw ground
         ax.text(-1, 3, 'time : %.2f' % self.time)
         ax.text(-1, 2.5, 'velocity : %.2f' % self.robot.dq[0])
-        ax.text(-1, 2, 'angle : %.2f (degree)' % (self.robot.q[1]*180/np.pi))
+        ax.text(-1, 2, 'angle : %.2f' % (self.robot.q[1]))
         plt.axis('equal')
         plt.savefig(save_path + img_name)
         plt.close()

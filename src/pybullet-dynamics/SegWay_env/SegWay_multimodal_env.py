@@ -36,9 +36,6 @@ class SegWayAdditiveNoiseEnv(SegWayEnv):
             q_limit, dq_limit, u_limit, a_safe_limit,
         )
         
-        # for online adaptation part 
-        self.use_online_adaptation = use_online_adaptation
-        self.first_predict = True
         self.modal_params = modal_params
     
     ### Interface for safe control
@@ -47,20 +44,16 @@ class SegWayAdditiveNoiseEnv(SegWayEnv):
         Additive noise
         '''
         f_points = []
-        g_points = []
         weights = [modal_param[0] for modal_param in self.modal_params]
         mus = [modal_param[1] for modal_param in self.modal_params]
         sigmas = [modal_param[2] for modal_param in self.modal_params]
         for _ in range(points_num):
             f = self.f
-            g = self.g
-            noise = np.zeros_like(f)
             modal_index = np.random.choice(a=len(weights), p=weights)
-            noise = np.random.multivariate_normal(mus[modal_index], sigmas[modal_index], size=1)
-            f_points.append(f + noise)
-            g_points.append(g)
+            noise = np.random.multivariate_normal(np.squeeze(mus[modal_index]), sigmas[modal_index], size=1)
+            f_points.append(f + noise.reshape(-1,1))
 
-        return f_points, g_points
+        return f_points
     
     def get_true_model_params(self):
         return self.modal_params
@@ -68,7 +61,6 @@ class SegWayAdditiveNoiseEnv(SegWayEnv):
     def reset(self):
         self.robot.q = np.zeros(2)
         self.robot.dq = np.zeros(2)
-        self.first_predict = True
         self.time=0
         
 
