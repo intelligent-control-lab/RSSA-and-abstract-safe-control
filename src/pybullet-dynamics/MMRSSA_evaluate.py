@@ -100,7 +100,7 @@ def evaluate_in_MM_SegWay(
     
 def get_rssa(rssa_type, env, safe_control_kwargs):
     param_dict = safe_control_kwargs['param_dict']
-    if rssa_type == 'multiplicative_none' or 'additive_none':
+    if rssa_type == 'multiplicative_none' or rssa_type == 'additive_none':
         rssa = None
     elif rssa_type == 'gaussian_additive_mmrssa':
         rssa = GaussianAddRSSA(
@@ -126,9 +126,8 @@ def get_rssa(rssa_type, env, safe_control_kwargs):
             safety_index_params=param_dict,
             sample_points_num=safe_control_kwargs['sample_points_num'],
             gamma=safe_control_kwargs['gamma'],
-            fast_SegWay=safe_control_kwargs['fast_SegWay'],
         )
-    elif rssa_type == 'multipicative_mmrssa':
+    elif rssa_type == 'multiplicative_mmrssa':
         rssa = MMMulRSSA(
             env=env,
             safety_index_params=param_dict,
@@ -162,16 +161,35 @@ def draw_phi(data, rssa_types, truncate=-1):
     plt.ylabel('$\phi$')
     plt.legend()
     plt.plot(np.ones_like(values)*0.1, linestyle='--', c='k', linewidth=0.75)
-    plt.show()
     plt.savefig(log_path + '/phi.png')
+    plt.show()
+    plt.close()
+
+def draw_u(data, rssa_types, truncate=-1):
+    ax1 = plt.subplot(131)
+    ax2 = plt.subplot(132)
+    ax3 = plt.subplot(133)
+    axes = [ax1, ax2, ax3]
+    for ax, rssa_type in zip(axes, rssa_types):
+        u = np.array(data[rssa_type]['u'])[:truncate]
+        u_ref = np.array(data[rssa_type]['u_ref'])[:truncate]
+        ax.plot(u, label='u')
+        ax.plot(u_ref, label='u_ref', linestyle='--', c='k', linewidth=0.75)
+        ax.set_xlabel('step')
+        ax.legend()
+        ax.set_ylabel(rssa_type)
+
+    plt.savefig(log_path + '/u.png')
+    plt.show()
     plt.close()
 
 if __name__ == '__main__':
     plt.rcParams['figure.dpi'] = 200  # 500
-    rssa_types = additive_rssa_types
-    # rssa_types = multiplicative_rssa_types
-    pkl_path, log_path = evaluate_in_MM_SegWay(rssa_types=rssa_types, num_steps=200)
+    # rssa_types = additive_rssa_types
+    rssa_types = multiplicative_rssa_types
+    pkl_path, log_path = evaluate_in_MM_SegWay(rssa_types=rssa_types, num_steps=20)
     with open(pkl_path, 'rb') as file:
         data = pickle.load(file)
     draw_phi(data, rssa_types)
+    draw_u(data, rssa_types)
     

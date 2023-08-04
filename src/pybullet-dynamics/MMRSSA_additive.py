@@ -72,7 +72,6 @@ class MMAddRSSA(SafetyIndex):
         # TODO: 1. use numpy vector to replace loop; 2. precompute rhos and store them
 
         optimal_o = -p_phi_p_Xr @ (f + modal_1_mu) - k_1 * self.get_rho(modal_1_sigma)
-        logger.debug(optimal_o)
         return optimal_o
     
     def predict_f_modal_parameters(self):

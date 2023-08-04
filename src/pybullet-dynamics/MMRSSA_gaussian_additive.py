@@ -167,7 +167,7 @@ class GaussianAddRSSA(SafetyIndex):
         sol_obj = solvers.qp(matrix(P), matrix(q), matrix(G), matrix(h))
         u = np.squeeze(sol_obj['x'])
         if np.abs(u[-1]) > 1e-3:
-            logger.debug(f'u_FI in MMAddRSSA: {u}')
+            logger.debug(f'u_FI in GaussianAddRSSA: {u}')
         u = u[:-1]
 
         return u

@@ -212,7 +212,7 @@ class GaussianMulRSSA(SafetyIndex):
         u = np.squeeze(u)
         # print(u[-1])
         if np.abs(u[-1]) > 1e-1:
-            # logger.debug(f'u_FI in GaussianRSSA: {u}')
+            logger.debug(f'u_FI in GaussianMulRSSA: {u}')
             self.if_infeasible = True
         else:
             self.if_infeasible = False
@@ -276,7 +276,7 @@ if __name__ == '__main__':
 
     env = SegWayMultiplicativeNoiseEnv()
     env.reset()
-    ssa = GaussianMulRSSA(env, fast_SegWay=False)
+    ssa = GaussianMulRSSA(env, fast_SegWay=True)
 
     q_d = np.array([0, 0])
     dq_d = np.array([1, 0])
