@@ -1,3 +1,4 @@
+from typing import Dict
 import numpy as np
 
 try:
@@ -10,7 +11,6 @@ except:
 class SegWayAdditiveNoiseEnv(SegWayEnv):
     def __init__(
         self,
-        use_online_adaptation=True,
         modal_params = [[0.3, np.array([0.1]*4).reshape(-1,1), np.eye(4, 4)*0.2], 
                         [0.7, np.array([-0.2]*4).reshape(-1,1), np.eye(4, 4)*0.2]],  
         # [[modal_1_ratio, modal_1_mu, modal_1_sigma], [modal_2], ...] where modal_1_mu (4,1) modal_1_sigma (4, 4) 
@@ -38,6 +38,31 @@ class SegWayAdditiveNoiseEnv(SegWayEnv):
         
         self.modal_params = modal_params
     
+    def get_phi(self, safety_index_params: Dict):
+        '''
+        phi = -a_safe_max ** alpha + |a| ** alpha + k_v * sign(a) * da + beta
+        '''
+        alpha = safety_index_params['alpha']
+        k_v = safety_index_params['k_v']
+        beta = safety_index_params['beta']
+        a_safe_max = self.a_safe_limit['high']
+        a = self.robot.q[1]
+        da = self.robot.dq[1]
+        return -a_safe_max ** alpha + np.abs(a) ** alpha + k_v * np.sign(a) * da + beta
+
+    def get_p_phi_p_Xr(self, safety_index_params: Dict):
+        '''
+        p_phi_p_Xr = [0.0, alpha * |a|^(alpha-1) * sign(a), 0.0, k_v * sign(a)]
+        '''
+        alpha = safety_index_params['alpha']
+        k_v = safety_index_params['k_v']
+        a = self.robot.q[1]
+        # da = self.robot.dq[1]
+        p_phi_p_Xr = np.zeros((1, 4))
+        p_phi_p_Xr[0, 1] = alpha * np.abs(a) ** (alpha-1) * np.sign(a)
+        p_phi_p_Xr[0, 3] = k_v * np.sign(a)
+        return p_phi_p_Xr
+
     ### Interface for safe control
     def sample_f_points(self, points_num=10):
         '''
@@ -64,10 +89,9 @@ class SegWayAdditiveNoiseEnv(SegWayEnv):
         self.time=0
         
 
-class SegWayMultiplicativeNoiseEnv(SegWayEnv):
+class SegWayMultiplicativeNoiseEnv(SegWayAdditiveNoiseEnv):
     def __init__(
         self,
-        use_online_adaptation=True,
         K_m_modal_params = [[0.3, 2.3, 0.1], 
                         [0.7, 2.6, 0.2]],  
         # [[modal_1_ratio, modal_1_mu, modal_1_sigma], [modal_2], ...] where modal_1_mu is scalar, modal_1_sigma is scalar 
@@ -84,6 +108,7 @@ class SegWayMultiplicativeNoiseEnv(SegWayEnv):
         a_safe_limit={'low': -0.1, 'high': 0.1},
     ):
         super().__init__(
+            None,
             dt,
             K_m,
             K_b,
@@ -94,8 +119,6 @@ class SegWayMultiplicativeNoiseEnv(SegWayEnv):
         )
         
         # for online adaptation part 
-        self.use_online_adaptation = use_online_adaptation
-        self.first_predict = True
         self.K_m_modal_params = K_m_modal_params
     
     ### Interface for safe control
@@ -168,7 +191,6 @@ class SegWayMultiplicativeNoiseEnv(SegWayEnv):
     def reset(self):
         self.robot.q = np.zeros(2)
         self.robot.dq = np.zeros(2)
-        self.first_predict = True
         self.time=0
 
     def get_f_coefs(self):
