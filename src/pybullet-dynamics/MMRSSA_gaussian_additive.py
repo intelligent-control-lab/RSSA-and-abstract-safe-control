@@ -62,8 +62,8 @@ class GaussianAddRSSA(SafetyIndex):
                 fig, ax = plt.subplots()
                 ax.plot(f_points[:, 2], f_points[:, 3], 'o')
 
-                mean = gaussian_param['f_mu'][2:]
-                sigma = gaussian_param['f_sigma'][2:,2:]
+                mean = np.mean(f_points[:, 2:], axis=0).reshape(-1, 1)
+                sigma = np.cov(f_points[:, 2:].T)
 
                 sqrt_cov = np.sqrt(np.linalg.eigvals(sigma))
                 width, height = stats.norm.ppf((self.p_gaussian + 1)/2) * 2 * sqrt_cov
@@ -168,6 +168,9 @@ class GaussianAddRSSA(SafetyIndex):
         u = np.squeeze(sol_obj['x'])
         if np.abs(u[-1]) > 1e-3:
             logger.debug(f'u_FI in GaussianAddRSSA: {u}')
+            self.if_infeasible = True
+        else:
+            self.if_infeasible = False
         u = u[:-1]
 
         return u

@@ -138,6 +138,9 @@ class MMAddRSSA(SafetyIndex):
         u = np.squeeze(sol_obj['x'])
         if np.abs(u[-1]) > 1e-3:
             logger.debug(f'u_FI in MMAddRSSA: {u}')
+            self.if_infeasible = True
+        else:
+            self.if_infeasible = False
         u = u[:-1]
         
         return u

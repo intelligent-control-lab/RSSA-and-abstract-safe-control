@@ -211,7 +211,7 @@ class GaussianMulRSSA(SafetyIndex):
         u = self.solve_qcqp(u_ref, A, b, P_obj, Ls, cs, ds)
         u = np.squeeze(u)
         # print(u[-1])
-        if np.abs(u[-1]) > 1e-1:
+        if np.abs(u[-1]) > 1e-3:
             logger.debug(f'u_FI in GaussianMulRSSA: {u}')
             self.if_infeasible = True
         else:

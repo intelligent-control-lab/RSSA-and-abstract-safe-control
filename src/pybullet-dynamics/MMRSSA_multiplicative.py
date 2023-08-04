@@ -31,8 +31,8 @@ class MMMulRSSA(SafetyIndex):
         sample_points_num=10,
         epsilon_0=0.1,
         epsilon_f=0.01,
-        max_gd_iterations = 400,
-        alpha = 0.001,
+        max_gd_iterations = 50,
+        alpha = 0.002,
         beta = 0.01,
         fast_SegWay = False, 
         debug=False
@@ -271,10 +271,11 @@ class MMMulRSSA(SafetyIndex):
             u = np.squeeze(u)
             # logger.debug(f'u[-1] = {u[-1]}')
             # logger.debug(f'opt_value = {opt_value}')
-            if np.abs(u[-1]) > 1e-1:
+            if np.abs(u[-1]) > 1e-3:
                 logger.debug(f'u_FI in MMMulRSSA: {u}')
+                self.if_infeasible = True
             else:
-                pass
+                self.if_infeasible = False
             u = u[:-1]
 
             # update p
@@ -439,7 +440,7 @@ class MMMulRSSA(SafetyIndex):
             '''
             for i in range(len(Ls)):
                 dual_value = torch.from_numpy(soc_constraints[i].dual_value[0])
-                value_for_grad += dual_value * (torch.norm(diff_Ls[i] @ torch.from_numpy(du.value), p=2) - diff_ds[i]) \
+                value_for_grad += dual_value * (torch.norm(diff_Ls[i] @ torch.from_numpy(du.value), p=2) - diff_ds[i])
 
         return u_ref[:-1] + np.vstack(du.value[:-1]), prob.value, value_for_grad
 
@@ -449,12 +450,12 @@ if __name__ == '__main__':
     env.reset()
     ssa = MMMulRSSA(env, 
                     safety_index_params={
-                        'alpha': 2.0,
-                        'k_v': 0.5,
+                        'alpha': 1.0,
+                        'k_v': 1.0,
                         'beta': 0.0,
                     },
                     sampling=False,
-                    fast_SegWay=True,
+                    fast_SegWay=False,
                     debug=False)
     
     q_d = np.array([0, 0])
