@@ -49,20 +49,20 @@ safe_control_kwargs:
   param_dict:
     alpha: 1.0
     k_v: 1.0
-    beta: 0.0
+    beta: 0.1
 
   rssa_types:
-    - 'gaussian_mmrssa'
+    - 'gaussian_rssa'
     - 'additive_mmrssa'
     - 'multiplicative_mmrssa'
 
-  sample_points_num: 50 # 'gaussian_mmrssa'
+  sample_points_num: 200 # 'gaussian_rssa'
   p_gaussian: 0.99 # 'gaussian_rssa'
   p_init:
     - 0.9
     - 0.9
   gamma: 0.1 # 
-  fast_SegWay: True
+  fast_SegWay: False
 
 # task setting
 speed_kwargs: # the SegWay robot tries to obtain a constant linear speed dp
@@ -76,6 +76,33 @@ speed_kwargs: # the SegWay robot tries to obtain a constant linear speed dp
   q_init:
     - 0.0
     - 0.0
+
+safety_index_learning_kwargs:
+  rssa_type: 'additive_mmrssa'
+  epoch: 10
+  elite_ratio: 0.1
+  populate_num: 100
+  init_sigma_ratio: 0.3
+  noise_ratio: 0.01
+  states_sampled_per_param: 1000
+  iteration_limit: 3000
+  reward_clip_ratio: 0.1
+
+  param_bounds: 
+    alpha: 
+      - 0.1
+      - 5.0
+    k_v: 
+      - 0.1
+      - 5.0
+    beta: 
+      - 0.001
+      - 1.0
+
+  # for visualization
+  visualize_set: 'L_and_V' # three choices: 'only_V', 'only_L', 'L_and_V'
+  q_sampled_per_dim: 20
+  dq_num: 50
   
   
 
