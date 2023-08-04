@@ -8,6 +8,7 @@ from loguru import logger
 from tqdm import tqdm
 import copy
 import torch
+from scipy.optimize import minimize, LinearConstraint
 
 from SegWay_env.SegWay_multimodal_env import SegWayMultiplicativeNoiseEnv
 from SegWay_env.SegWay_utils import *
@@ -25,7 +26,7 @@ class MMMulRSSA(SafetyIndex):
             'k_v': 1.0,
             'beta': 0.0,
         },
-        p_init=[0.9, 0.9],
+        p_init=[0.999, 0.999],
         gamma=0.1,
         sampling=False,
         sample_points_num=10,
@@ -204,12 +205,7 @@ class MMMulRSSA(SafetyIndex):
         # 2. || L.T u || <= c @ u + d + u_slack
         
         # initialize p = {p_i}
-        p = self.p_init
-        diff_p = torch.tensor(p, requires_grad=True) # differentiable p for gradient computation using pytorch
-
-        lambdas_init = np.zeros(1+2*len(p), dtype=np.float32)
-        lambdas_init[0]=10
-        lambdas = torch.tensor(lambdas_init, requires_grad=True) # lagrangian multipliers for outer gd loop
+        p = np.array(self.p_init)
 
         # P_obj
         P_obj = np.eye(self.u_dim + 1).astype(float)
@@ -241,15 +237,13 @@ class MMMulRSSA(SafetyIndex):
             value_for_grad_list = []
             opt_value_list = []
 
-        if phi > 0:
-            num_iter = self.max_gd_iterations
-        else:
-            num_iter = 1
 
-        for iter in range(num_iter):
-            '''
-            gradient descent step: min d({pi}) + lambdas[0] * ((1-epsilon_f)-sum(weight*p_i)) + sum(lambdas[ ]*(p_i-1)) + sum(lambdas[]*(-p_i))
-            '''
+        self.obj_grad = None
+        self.constraint_grad = None
+
+        def safe_control_with_p(p):
+            diff_p = torch.tensor(p, requires_grad=True) # differentiable p for gradient computation using pytorch
+
             # add slack variable to L, c, d
             Ls=[]
             cs=[]
@@ -278,31 +272,50 @@ class MMMulRSSA(SafetyIndex):
                 self.if_infeasible = False
             u = u[:-1]
 
+            grad_numpy = None
             # update p
             if len(Ls) > 0:
-                weights = torch.tensor([modal_param['weight'] for modal_param in modal_params_pred])
-                modal_dim = len(Ls)
-                value_for_grad += lambdas[0]*((1 - self.epsilon_f) - torch.dot(weights, diff_p)) \
-                                + torch.dot(lambdas[1:1+modal_dim], diff_p-1) \
-                                + torch.dot(lambdas[1+modal_dim:], -diff_p)
                 value_for_grad.backward()
-
-                diff_p.data -= self.alpha * diff_p.grad.data
-                diff_p.detach_()
-                diff_p.clamp_(0.00001, 0.99999)
-                p = np.array(diff_p)
-                diff_p = diff_p.clone().detach().requires_grad_(True)
-
-                lambdas.data += self.beta * lambdas.grad.data
-                lambdas.detach_()
-                lambdas.clamp_(min=0)
-                lambdas = lambdas.clone().detach().requires_grad_(True)
+                grad_numpy = diff_p.grad.numpy()
 
                 if self.debug:
-                    logger.debug(f'lambdas={lambdas.data}')
                     p_list.append(p)
                     value_for_grad_list.append(value_for_grad.item())
                     opt_value_list.append(opt_value)
+            
+            return u, opt_value, grad_numpy
+
+        if phi > 0:
+            num_modal = len(self.p_init)
+            weights = np.array([modal_param['weight'] for modal_param in modal_params_pred])
+
+            # Objective function
+            def objective(p):
+                u, value, grad = safe_control_with_p(p)
+                return value, grad
+
+            # Constraint function
+            cons = []
+
+            def main_constraint(p):
+                return np.dot(weights, p) - (1-self.epsilon_f)
+            
+            cons.append({'type': 'ineq', 'fun': main_constraint, 'jac': lambda x: weights, 'hess': lambda x: np.zeros(num_modal, num_modal)})
+
+            bounds = [[0, 1]] * num_modal
+
+            res = minimize(objective, self.p_init, jac=True, constraints=cons, bounds=bounds,  method='SLSQP', tol=1e-4, options={'disp': False})
+
+            opt_value = res.fun
+            optimal_p = res.x
+            # self.p_init = optimal_p  # update initial p
+            u, _, _= safe_control_with_p(optimal_p)
+            print(optimal_p)
+            print(np.dot(weights, p) - (1-self.epsilon_f))
+
+        else:
+            u, _, _ = safe_control_with_p(p)
+
 
         if self.debug and p_list:
             ax1 = plt.subplot(131)
