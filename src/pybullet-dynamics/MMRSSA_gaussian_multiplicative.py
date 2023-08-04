@@ -29,6 +29,7 @@ class GaussianMulRSSA(SafetyIndex):
         sample_points_num=100,
         gamma=0.1,
         fast_SegWay=False,
+        debug=False
     ):
         super().__init__(env, safety_index_params)
         self.p_gaussian = p_gaussian
@@ -38,6 +39,7 @@ class GaussianMulRSSA(SafetyIndex):
         self.gamma = gamma
         self.fast_SegWay = fast_SegWay
         self.sampling = True  # Only sampling method is implemented
+        self.debug=debug
         
     def predict_f_g_gaussian_parameters(self):
         '''
@@ -57,6 +59,28 @@ class GaussianMulRSSA(SafetyIndex):
             gaussian_param['f_sigma'] = np.cov(f_points.T)
             gaussian_param['g_mu'] = np.mean(g_points_flat, axis=0).reshape(self.x_dim, self.u_dim)    # shape: (x_dim, u_dim)
             gaussian_param['g_sigma'] = np.cov(g_points_flat.T)
+
+            if self.debug:
+                fig, ax = plt.subplots()
+                ax.plot(f_points[:, 2], f_points[:, 3], 'o')
+
+                mean = np.mean(f_points[:, 2:], axis=0).reshape(-1, 1)
+                sigma = np.cov(f_points[:, 2:].T)
+
+                sqrt_cov = np.sqrt(np.linalg.eigvals(sigma))
+                width, height = stats.norm.ppf((self.p_gaussian + 1)/2) * 2 * sqrt_cov
+
+                # Calculate rotation angle
+                evec = np.linalg.eigh(sigma)[1]
+                angle = np.arctan2(evec[0,1], evec[0,0]) * 180 / np.pi
+
+                # Plot ellipse
+                from matplotlib.patches import Ellipse
+                ax = plt.gca()
+                ax.add_patch(Ellipse(mean, width=width, height=height, angle=angle,
+                                    facecolor='none', edgecolor='r'))
+
+                plt.show()
 
         else:
             # TODO: compute unimodal gaussian parameters directly from multimodal parameters
@@ -276,7 +300,7 @@ if __name__ == '__main__':
 
     env = SegWayMultiplicativeNoiseEnv()
     env.reset()
-    ssa = GaussianMulRSSA(env, fast_SegWay=True)
+    ssa = GaussianMulRSSA(env, fast_SegWay=True, debug=True)
 
     q_d = np.array([0, 0])
     dq_d = np.array([1, 0])

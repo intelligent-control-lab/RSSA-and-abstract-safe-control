@@ -21,10 +21,6 @@ from SCARA_env.SCARA_utils import draw_GP_confidence_interval
 from SegWay_env.SegWay_utils import generate_gif
 
 
-additive_rssa_types = ['gaussian_additive_mmrssa', 'additive_mmrssa', 'additive_none']
-multiplicative_rssa_types=['gaussian_multiplicative_mmrssa', 'multiplicative_mmrssa', 'multiplicative_none']
-
-
 def evaluate_in_MM_SegWay(
     rssa_types,
     yaml_path = './src/pybullet-dynamics/SegWay_env/SegWay_multimodal_params.yaml',
@@ -170,6 +166,7 @@ def draw_u(data, rssa_types, truncate=-1):
     ax2 = plt.subplot(132)
     ax3 = plt.subplot(133)
     axes = [ax1, ax2, ax3]
+    axes = axes[:len(rssa_types)]
     for ax, rssa_type in zip(axes, rssa_types):
         u = np.array(data[rssa_type]['u'])[:truncate]
         u_ref = np.array(data[rssa_type]['u_ref'])[:truncate]
@@ -185,9 +182,13 @@ def draw_u(data, rssa_types, truncate=-1):
 
 if __name__ == '__main__':
     plt.rcParams['figure.dpi'] = 200  # 500
+
+    additive_rssa_types = ['gaussian_additive_mmrssa', 'additive_mmrssa', 'additive_none']
+    multiplicative_rssa_types=['gaussian_multiplicative_mmrssa', 'multiplicative_mmrssa', 'multiplicative_none']
+
     # rssa_types = additive_rssa_types
     rssa_types = multiplicative_rssa_types
-    pkl_path, log_path = evaluate_in_MM_SegWay(rssa_types=rssa_types, num_steps=20)
+    pkl_path, log_path = evaluate_in_MM_SegWay(rssa_types=rssa_types, num_steps=1000)
     with open(pkl_path, 'rb') as file:
         data = pickle.load(file)
     draw_phi(data, rssa_types)
