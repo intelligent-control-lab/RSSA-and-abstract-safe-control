@@ -23,7 +23,6 @@ from SegWay_env.SegWay_utils import generate_gif
 
 additive_rssa_types = ['gaussian_additive_mmrssa', 'additive_mmrssa', 'additive_none']
 multiplicative_rssa_types=['gaussian_multiplicative_mmrssa', 'multiplicative_mmrssa', 'multiplicative_none']
-plt.rcParams['figure.dpi'] = 500
 
 
 def evaluate_in_MM_SegWay(
@@ -76,13 +75,16 @@ def evaluate_in_MM_SegWay(
         rssa = get_rssa(rssa_type, env, safe_control_kwargs)
         monitor = Monitor()
         for i in tqdm(range(num_steps)):
-            u = env.robot.PD_control(q_d=q_d, dq_d=dq_d)
+            u_ref = env.robot.PD_control(q_d=q_d, dq_d=dq_d)
             if rssa is not None:
-                u = rssa.safe_control(u)
+                u = rssa.safe_control(u_ref)
+            else:
+                u = u_ref
             env.step(u)
             monitor.update(
                 q=env.robot.q,
                 dq=env.robot.dq,
+                u_ref=u_ref,
                 u=u,
                 dis_a_limit=env.a_safe_limit['high'] - env.robot.q[1],
             )
@@ -152,27 +154,24 @@ def draw_dis(data, offset=0.0, truncate=500):
     plt.savefig(log_path + '/dis.png')
     plt.close()
     
-def draw_CI(data, offset=0.0, truncate=500):
-    
+def draw_phi(data, rssa_types, truncate=-1):
     for rssa_type in rssa_types:
-        draw_GP_confidence_interval(
-            data[rssa_type]['m_2_mean'][:truncate], 
-            data[rssa_type]['m_2_std'][:truncate], 
-            y_name='m_2_pred', 
-            img_name='GP.png', 
-            label=rssa_type, 
-            if_close=False,
-            img_path=log_path+'/',
-        )
+        values = np.array(data[rssa_type]['q'])[:truncate, 1]
+        plt.plot(values, label=rssa_type)
+        plt.xlabel('step')
+    plt.ylabel('$\phi$')
     plt.legend()
-    plt.savefig(log_path + '/GP.png')
+    plt.plot(np.ones_like(values)*0.1, linestyle='--', c='k', linewidth=0.75)
+    plt.show()
+    plt.savefig(log_path + '/phi.png')
     plt.close()
 
 if __name__ == '__main__':
-    pkl_path, log_path = evaluate_in_MM_SegWay(rssa_types=additive_rssa_types, num_steps=20)
-    pkl_path, log_path = evaluate_in_MM_SegWay(rssa_types=multiplicative_rssa_types, num_steps=20)
-    # with open(pkl_path, 'rb') as file:
-    #     data = pickle.load(file)
-    # draw_dis(data)
-    # draw_CI(data)
+    plt.rcParams['figure.dpi'] = 200  # 500
+    rssa_types = additive_rssa_types
+    # rssa_types = multiplicative_rssa_types
+    pkl_path, log_path = evaluate_in_MM_SegWay(rssa_types=rssa_types, num_steps=200)
+    with open(pkl_path, 'rb') as file:
+        data = pickle.load(file)
+    draw_phi(data, rssa_types)
     
