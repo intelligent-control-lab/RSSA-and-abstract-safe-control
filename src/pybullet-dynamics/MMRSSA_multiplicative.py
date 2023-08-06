@@ -205,7 +205,7 @@ class MMMulRSSA(SafetyIndex):
         # 2. || L.T u || <= c @ u + d + u_slack
         
         # initialize p = {p_i}
-        p = np.array(self.p_init)
+        p = np.ones_like(self.p_init) * (1-self.epsilon_f) + 0.001
 
         # P_obj
         P_obj = np.eye(self.u_dim + 1).astype(float)
@@ -302,16 +302,26 @@ class MMMulRSSA(SafetyIndex):
             
             cons.append({'type': 'ineq', 'fun': main_constraint, 'jac': lambda x: weights, 'hess': lambda x: np.zeros(num_modal, num_modal)})
 
-            bounds = [[0, 1]] * num_modal
+            A_ = np.eye(num_modal)
+            lb = np.zeros(num_modal)
+            rb = np.ones(num_modal)*0.999999
+            p_limit_cons = LinearConstraint(A_, lb, rb)
 
-            res = minimize(objective, self.p_init, jac=True, constraints=cons, bounds=bounds,  method='SLSQP', tol=1e-4, options={'disp': False})
+            cons.append(p_limit_cons)
+
+            bounds = [[0.000001, 0.999999]] * num_modal
+
+            res = minimize(objective, self.p_init, jac=True, constraints=cons, bounds=bounds,  method='SLSQP', tol=1e-4, options={'disp': False, 'maxiter': 10})
+            # res = minimize(objective, self.p_init, jac=True, constraints=cons, bounds=bounds,  method='trust-constr', tol=1e-4, options={'disp': False, 'initial_tr_radius': 0.1})
 
             opt_value = res.fun
             optimal_p = res.x
-            # self.p_init = optimal_p  # update initial p
+            self.p_init = optimal_p  # update initial p
             u, _, _= safe_control_with_p(optimal_p)
-            print(optimal_p)
-            print(np.dot(weights, p) - (1-self.epsilon_f))
+            if self.debug:
+                print(f'optimal value: {opt_value}')
+                print(f'optimal p : {optimal_p}')
+                print(f'constraint: {np.dot(weights, optimal_p) - (1-self.epsilon_f)}')
 
         else:
             u, _, _ = safe_control_with_p(p)
