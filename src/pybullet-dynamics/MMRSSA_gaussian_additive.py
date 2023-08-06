@@ -25,8 +25,8 @@ class GaussianAddRSSA(SafetyIndex):
             'k_v': 1.0,
             'beta': 0.0,
         },
-        p_gaussian = 0.999,
-        sample_points_num=300,
+        p_gaussian = 0.99,
+        sample_points_num=200,
         gamma=0.1,
         fast_SegWay=False,
         debug=False
@@ -180,7 +180,7 @@ if __name__ == '__main__':
 
     env = SegWayAdditiveNoiseEnv()
     env.reset()
-    ssa = GaussianAddRSSA(env, fast_SegWay=False, debug=True)
+    ssa = GaussianAddRSSA(env, fast_SegWay=True, debug=True)
 
     q_d = np.array([0, 0])
     dq_d = np.array([1, 0])

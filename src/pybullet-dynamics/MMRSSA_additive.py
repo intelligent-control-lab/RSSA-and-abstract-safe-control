@@ -23,8 +23,8 @@ class MMAddRSSA(SafetyIndex):
         sampling=False,
         sample_points_num=10,
         gamma=0.1,
-        epsilon_0=0.5,
-        epsilon_f=0.05
+        epsilon_0=0.05,
+        epsilon_f=0.01
     ):
         super().__init__(env, safety_index_params)
         self.sample_points_num = sample_points_num

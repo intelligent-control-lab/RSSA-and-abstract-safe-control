@@ -11,8 +11,10 @@ except:
 class SegWayAdditiveNoiseEnv(SegWayEnv):
     def __init__(
         self,
-        modal_params = [[0.3, np.array([0.1]*4).reshape(-1,1), np.eye(4, 4)*0.2], 
-                        [0.7, np.array([-0.2]*4).reshape(-1,1), np.eye(4, 4)*0.2]],  
+        # modal_params = [[0.3, np.array([0.1]*4).reshape(-1,1), np.eye(4, 4)*0.2], 
+        #                 [0.7, np.array([-0.2]*4).reshape(-1,1), np.eye(4, 4)*0.2]],  
+        modal_params = [[0.8, np.array([0.1, -0.1, 0.1, -0.1]).reshape(-1,1), np.diag([0.1]*4)], 
+                        [0.2, np.array([-0.1, -1.0, 0.2, -10.0]).reshape(-1,1), np.diag([0.1]*4)]], 
         # [[modal_1_ratio, modal_1_mu, modal_1_sigma], [modal_2], ...] where modal_1_mu (4,1) modal_1_sigma (4, 4) 
         
         dt=1/240,
@@ -92,8 +94,8 @@ class SegWayAdditiveNoiseEnv(SegWayEnv):
 class SegWayMultiplicativeNoiseEnv(SegWayAdditiveNoiseEnv):
     def __init__(
         self,
-        K_m_modal_params = [[0.3, 2.3, 0.1], 
-                        [0.7, 2.6, 0.2]],  
+        K_m_modal_params = [[0.8, 2.2, 0.05], 
+                        [0.2, 4.0, 0.1]],  
         # [[modal_1_ratio, modal_1_mu, modal_1_sigma], [modal_2], ...] where modal_1_mu is scalar, modal_1_sigma is scalar 
         
         dt=1/240,
