@@ -25,7 +25,8 @@ def evaluate_in_MM_SegWay(
     rssa_types,
     yaml_path = './src/pybullet-dynamics/SegWay_env/SegWay_multimodal_params.yaml',
     log_root_path='./src/pybullet-dynamics/SegWay_env/log/',
-    num_steps=100
+    num_steps=100,
+    render=False
 ):
     now = datetime.now()
     date_time = now.strftime('%Y-%m-%d__%H-%M-%S')
@@ -84,10 +85,12 @@ def evaluate_in_MM_SegWay(
                 u=u,
                 dis_a_limit=env.a_safe_limit['high'] - env.robot.q[1],
             )
-            env.render(img_name=str(i) + '.jpg', save_path=f'./src/pybullet-dynamics/SegWay_env/imgs/mm_evaluate/{rssa_type}/')
+            if render:
+                env.render(img_name=str(i) + '.jpg', save_path=f'./src/pybullet-dynamics/SegWay_env/imgs/mm_evaluate/{rssa_type}/')
         store_data[rssa_type] = monitor.data
-        generate_gif(rssa_type + '.gif', f'./src/pybullet-dynamics/SegWay_env/imgs/mm_evaluate/{rssa_type}/',
-                     f'./src/pybullet-dynamics/SegWay_env/movies/mm_evaluate/', num_fig=num_steps)
+        if render:
+            generate_gif(rssa_type + '.gif', f'./src/pybullet-dynamics/SegWay_env/imgs/mm_evaluate/{rssa_type}/',
+                        f'./src/pybullet-dynamics/SegWay_env/movies/mm_evaluate/', num_fig=num_steps)
     
     with open(log_path + '/SegWay_safe_control.pkl', 'wb') as file:
         pickle.dump(store_data, file)
@@ -183,8 +186,8 @@ def draw_u(data, rssa_types, truncate=-1):
 if __name__ == '__main__':
     plt.rcParams['figure.dpi'] = 200  # 500
 
-    additive_rssa_types = ['gaussian_additive_mmrssa', 'additive_mmrssa', 'additive_none']
-    multiplicative_rssa_types=['gaussian_multiplicative_mmrssa', 'multiplicative_mmrssa', 'multiplicative_none']
+    additive_rssa_types = ['additive_mmrssa', 'gaussian_additive_mmrssa'] #, 'additive_none']
+    multiplicative_rssa_types=['multiplicative_mmrssa', 'gaussian_multiplicative_mmrssa'] # , 'multiplicative_none']
 
     # rssa_types = additive_rssa_types
     rssa_types = multiplicative_rssa_types
