@@ -265,8 +265,8 @@ class MMMulRSSA(SafetyIndex):
             u = np.squeeze(u)
             # logger.debug(f'u[-1] = {u[-1]}')
             # logger.debug(f'opt_value = {opt_value}')
-            if np.abs(u[-1]) > 1e-3:
-                logger.debug(f'u_FI in MMMulRSSA: {u}')
+            if np.abs(u[-1]) > 1e-2:
+                # logger.debug(f'u_FI in MMMulRSSA: {u}')
                 self.if_infeasible = True
             else:
                 self.if_infeasible = False
@@ -475,7 +475,7 @@ if __name__ == '__main__':
                     safety_index_params={
                         'alpha': 1.0,
                         'k_v': 1.0,
-                        'beta': 0.0,
+                        'beta': 0.001,
                     },
                     sampling=False,
                     fast_SegWay=False,

@@ -136,8 +136,8 @@ class MMAddRSSA(SafetyIndex):
 
         sol_obj = solvers.qp(matrix(P), matrix(q), matrix(G), matrix(h))
         u = np.squeeze(sol_obj['x'])
-        if np.abs(u[-1]) > 1e-3:
-            logger.debug(f'u_FI in MMAddRSSA: {u}')
+        if np.abs(u[-1]) > 1e-2:
+            # logger.debug(f'u_FI in MMAddRSSA: {u}')
             self.if_infeasible = True
         else:
             self.if_infeasible = False
@@ -150,9 +150,9 @@ if __name__ == '__main__':
     env.reset()
     ssa = MMAddRSSA(env, 
                     safety_index_params={
-                        'alpha': 2.0,
-                        'k_v': 0.5,
-                        'beta': 0.0,
+                        'alpha': 1.0,
+                        'k_v': 1.0,
+                        'beta': 0.001,
                     },
                     sampling=False)
     
@@ -166,6 +166,25 @@ if __name__ == '__main__':
         env.render(img_name=str(i) + '.jpg', save_path='./src/pybullet-dynamics/SegWay_env/imgs/mm_add_rssa/')
 
     generate_gif('mm_add_rssa.gif', './src/pybullet-dynamics/SegWay_env/imgs/mm_add_rssa/', duration=0.01)
+
+    # safety_index_params={
+    #     'alpha': 1.0,
+    #     'k_v': 1.0,
+    #     'beta': 0.001,
+    # }
+
+    # env.robot.K_m = 1.9
+    # env.robot.q =  np.array([0, -0.2559])
+    # env.robot.dq = np.array([-4.91, -0.733])
+    # phi = env.get_phi(safety_index_params)
+    # p_phi_p_Xr = env.get_p_phi_p_Xr(safety_index_params)
+    # print(f'phi= {phi}')
+    # print(f'left={p_phi_p_Xr @ env.g}')
+    # print(f'right={-0.1*phi - p_phi_p_Xr @ env.f}')
+    # print(f'u {(-0.1*phi - p_phi_p_Xr @ env.f)/(p_phi_p_Xr @ env.g)}')
+    # print(ssa.safe_control(np.array([0])))
+    
+
     # plt.plot(a_list)
     # plt.savefig('./src/pybullet-dynamics/SegWay_env/imgs/parameter_learning/a.jpg')
     # plt.plot(K_m_true_list, label='true K_m')
