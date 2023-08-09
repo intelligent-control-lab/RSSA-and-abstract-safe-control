@@ -16,10 +16,10 @@ robot_kwargs:
   # q limits
   q_limit:
     low:
-      - -100.0
+      - -1
       - -1.57
     high:
-      - 100
+      - 1
       - 1.57
   
   # dq limits
@@ -34,9 +34,9 @@ robot_kwargs:
   # u limits
   u_limit:
     low:
-      - -20.0
+      - -40.0
     high:
-      - 20.0
+      - 40.0
 
   # a_safe limits
   a_safe_limit:
@@ -56,7 +56,7 @@ safe_control_kwargs:
     - 'additive_mmrssa'
     - 'multiplicative_mmrssa'
 
-  sample_points_num: 200 # 'gaussian_rssa'
+  sample_points_num: 100 # 'gaussian_rssa'
   p_gaussian: 0.99 # 'gaussian_rssa'
   p_init:
     - 0.96
@@ -78,15 +78,20 @@ speed_kwargs: # the SegWay robot tries to obtain a constant linear speed dp
     - 0.0
 
 safety_index_learning_kwargs:
-  rssa_type: 'additive_mmrssa'
+  rssa_type: 'multiplicative_mmrssa'
   epoch: 10
   elite_ratio: 0.1
   populate_num: 100
-  init_sigma_ratio: 0.3
+  init_sigma_ratio: 0.1 # 0.3
   noise_ratio: 0.01
   states_sampled_per_param: 1000
   iteration_limit: 3000
   reward_clip_ratio: 0.1
+
+  init_param_dict:
+    alpha: 0.2882
+    k_v: 3.72
+    beta: 0.422
 
   param_bounds: 
     alpha: 

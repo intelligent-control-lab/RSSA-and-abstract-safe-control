@@ -1,7 +1,6 @@
 from typing import Dict, List
 from matplotlib import pyplot as plt
 import numpy as np
-from cvxopt import matrix, solvers
 import yaml
 from loguru import logger
 from datetime import datetime
@@ -9,6 +8,8 @@ import os
 import shutil
 from copy import copy
 import pickle
+from scipy.special import betainc, beta
+from tqdm import tqdm
 
 from RSSA_safety_index_learning import RSSASafetyIndexLearning
 from SegWay_env.SegWay_multimodal_env import SegWayMultiplicativeNoiseEnv, SegWayAdditiveNoiseEnv
@@ -47,7 +48,7 @@ class SegWayMMSafetyIndexLearning(RSSASafetyIndexLearning):
         params = copy(self.init_params)
         self.populate()
         rewards = []
-        for i, data in enumerate(self.population):
+        for i, data in tqdm(enumerate(self.population)):
             for key, x in zip(params.keys(), data):
                 params[key] = x
             reward = self.evaluate_single_param(params)
@@ -60,30 +61,33 @@ class SegWayMMSafetyIndexLearning(RSSASafetyIndexLearning):
         self.sigma = np.cov(best_members.T) + self.noise
 
     def evaluate_single_param(self, param_dict: Dict):
-        reward = 0
-        count = 0
+        N_f = 0 # feasible
+        N_i = 0 # infeasible
+        self.rssa.safety_index_params = param_dict
         for i in range(self.iteration_limit):
             self.env.robot.q = np.random.uniform(low=self.env.q_limit['low'], high=self.env.q_limit['high'])
             self.env.robot.dq = np.random.uniform(low=self.env.dq_limit['low'], high=self.env.dq_limit['high'])
             phi = self.env.get_phi(safety_index_params=param_dict)
-            if np.abs(self.env.robot.q[1]) <= 0.1 or phi < 0:
+            # if np.abs(self.env.robot.q[1]) <= 0.1 or phi < 0:
+            if phi < 0:
                 continue
             else:
                 if self.check_one_state():
-                    reward += 1
-                count += 1
+                    N_f += 1
+                else:
+                    # print(self.env.robot.q, self.env.robot.dq)
+                    N_i += 1
             
-            if count == self.states_sampled_per_param:
+            if N_f + N_i == self.states_sampled_per_param:
                 break
         
-        # strengthen reward
-        if count < self.iteration_limit * self.reward_clip_ratio:
-            reward = 0.0
-        else:
-            reward = reward / count
-
+        ##### reward
+        #  P(q>z) = 1- B(z;N_f+1,N_i+1)/B(N_f+1,N_i+1)
+        # reward = 1 - betainc(N_f+1, N_i+1, 0.999)  # it seems that this is hard to optimize
+        reward = N_f/(N_f+N_i)
+        
         logger.debug(f'params: {param_dict}')
-        logger.debug(f'total iterations: {i}, count: {count}, reward: {reward}')
+        logger.debug(f'total iterations: {i+1}, N_f: {N_f}, N_i: {N_i}, reward: {reward}')
         return reward
     
     def check_one_state(self):
@@ -118,7 +122,7 @@ class SegWayMMSafetyIndexLearning(RSSASafetyIndexLearning):
 
 def MM_Learning(
     yaml_path = './src/pybullet-dynamics/SegWay_env/SegWay_multimodal_params.yaml',
-    log_root_path='./src/pybullet-dynamics/SegWay_env/log/Safety_index_learning',
+    log_root_path='./src/pybullet-dynamics/SegWay_env/log/Safety_index_learning/',
     visualize_set='only_V',
 ):
     now = datetime.now()
@@ -161,7 +165,7 @@ def MM_Learning(
         populate_num=safety_index_learning_kwargs['populate_num'],
         init_sigma_ratio=safety_index_learning_kwargs['init_sigma_ratio'],
         noise_ratio=safety_index_learning_kwargs['noise_ratio'],
-        init_params=safe_control_kwargs['param_dict'],
+        init_params=safety_index_learning_kwargs['init_param_dict'],
         param_bounds=safety_index_learning_kwargs['param_bounds'],
         
         rssa_type=safety_index_learning_kwargs['rssa_type'],
@@ -172,6 +176,10 @@ def MM_Learning(
         reward_clip_ratio=safety_index_learning_kwargs['reward_clip_ratio']
     )
     
+    # MM_learn.evaluate_single_param({'alpha': 1.0, 'k_v': 1.0, 'beta': 0.001})
+    # MM_learn.evaluate_single_param({'alpha': 0.41299781574142935, 'k_v': 4.89561275104321, 'beta': 0.6751067447507083})
+    # exit()
+
     visualize_set = safety_index_learning_kwargs['visualize_set']
     assert visualize_set == 'only_L' or visualize_set == 'only_V' or visualize_set == 'L_and_V'
     if visualize_set == 'only_L':
