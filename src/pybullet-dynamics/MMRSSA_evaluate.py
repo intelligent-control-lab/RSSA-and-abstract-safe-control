@@ -236,7 +236,7 @@ def draw_interval_in_MM_SegWay(
             sigma = sigma[[1,3]][:,[1,3]]
             draw_ellipsoid(ax_model, mu, sigma, k=k, color='green')
         f_points = gaussian_rssa.f_points
-        ax_model.plot(f_points[:, 1], f_points[:, 3], 'o', color='orange', markersize=5, alpha=0.8)
+        ax_model.plot(f_points[:, 1], f_points[:, 3], 'o', color='orange', markersize=3, alpha=0.8)
         mu = np.mean(f_points[:, [1, 3]], axis=0).reshape(-1, 1)
         sigma = np.cov(f_points[:, [1, 3]].T)
         draw_ellipsoid(ax_model, mu, sigma, confidence=gaussian_rssa.p_gaussian, color='cornflowerblue')
@@ -274,8 +274,9 @@ def draw_interval_in_MM_SegWay(
     else:
         mmrssa: MMMulRSSA = get_rssa('multiplicative_mmrssa', env, safe_control_kwargs)
         gaussian_rssa: GaussianMulRSSA = get_rssa('gaussian_multiplicative_mmrssa', env, safe_control_kwargs)
-        mmrssa.safe_control(np.array([0]))
-        gaussian_rssa.safe_control(np.array([0]))
+        u_mmrssa = mmrssa.safe_control(np.array([-20]))
+        u_gaussian = gaussian_rssa.safe_control(np.array([-20]))
+        print(u_mmrssa, u_gaussian)
         for modal_param, p in zip(mmrssa.modal_params_pred, mmrssa.optimal_p):
             # f_mu = modal_param['f_mu']
             # f_sigma = modal_param['f_sigma']
@@ -300,22 +301,31 @@ def draw_interval_in_MM_SegWay(
         ######
         # (L^2-c^2)*u^2 - 2cdu - d^2 <= 0
         ######
+        u_mmrssa = 0
+        u_gaussian = 0
         for con in mmrssa.safety_conditions:
-            if con['L']**2-con['c']**2 == 0:
-                raise NotImplementedError
-            u_l, u_r = sorted(np.roots([con['L']**2-con['c']**2, -2*con['c']*con['d'], -con['d']**2]))
-            if con['L']**2-con['c']**2 > 0:
-                mm_u_interval = mm_u_interval & interval([u_l, u_r])
+            # print(abs(con['L']*u_mmrssa)<=con['c']*u_mmrssa+con['d']+0.01)
+            L, c, d = con['L'], con['c'], con['d']
+            if L+c>0:
+                mm_u_interval = mm_u_interval & interval([-d/(L+c), inf])
             else:
-                mm_u_interval = mm_u_interval & (interval([-inf, u_l]) | interval([u_r, inf]))
+                mm_u_interval = mm_u_interval & interval([-inf, -d/(L+c)])
+            if L-c>0:
+                mm_u_interval = mm_u_interval & interval([-inf, d/(L-c)])
+            else:
+                mm_u_interval = mm_u_interval & interval([d/(L-c), inf])
         
         con = gaussian_rssa.safety_conditions
-        u_l, u_r = sorted(np.roots([con['L']**2-con['c']**2, -2*con['c']*con['d'], -con['d']**2]))
-        if con['L']**2-con['c']**2 > 0:
-            gaussian_u_interval = gaussian_u_interval & interval([u_l, u_r])
+        # print(abs(con['L']*u_gaussian)<=con['c']*u_gaussian+con['d']+0.01)
+        L, c, d = con['L'], con['c'], con['d']
+        if L+c>0:
+            gaussian_u_interval = gaussian_u_interval & interval([-d/(L+c), inf])
         else:
-            gaussian_u_interval = gaussian_u_interval & (interval([-inf, u_l]) | interval([u_r, inf]))
-
+            gaussian_u_interval = gaussian_u_interval & interval([-inf, -d/(L+c)])
+        if L-c>0:
+            gaussian_u_interval = gaussian_u_interval & interval([-inf, d/(L-c)])
+        else:
+            gaussian_u_interval = gaussian_u_interval & interval([d/(L-c), inf])
         # Draw intervals as vertical lines
         for sub_interval in mm_u_interval:
             u_l, u_r = sub_interval.inf, sub_interval.sup
@@ -354,4 +364,4 @@ if __name__ == '__main__':
 
     ### draw interval
     # draw_interval_in_MM_SegWay(env_type='additive', q=[0, 0.06], dq=[0, 0.5])    
-    draw_interval_in_MM_SegWay(env_type='multiplicative', q=[0, 0.07], dq=[0, 0.5])    
+    draw_interval_in_MM_SegWay(env_type='multiplicative', q=[0, 0.2], dq=[0, 0.5])    
