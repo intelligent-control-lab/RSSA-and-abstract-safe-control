@@ -214,6 +214,8 @@ class MMMulRSSA(SafetyIndex):
         phi = self.env.get_phi(self.safety_index_params)
         modal_params_pred = self.predict_f_g_modal_parameters()
 
+        self.modal_params_pred = modal_params_pred  # for drawing
+
         # A:  A_U,  A_slack
         A_slack = np.zeros((1, self.u_dim + 1))
         A_slack[0, -1] = -1
@@ -240,9 +242,10 @@ class MMMulRSSA(SafetyIndex):
 
         self.obj_grad = None
         self.constraint_grad = None
-
         def safe_control_with_p(p):
             diff_p = torch.tensor(p, requires_grad=True) # differentiable p for gradient computation using pytorch
+
+            self.safety_conditions = []   # for drawing
 
             # add slack variable to L, c, d
             Ls=[]
@@ -253,6 +256,7 @@ class MMMulRSSA(SafetyIndex):
             if phi > 0:
                 for p_i, diff_p_i, modal_param in zip(p, diff_p, modal_params_pred):
                     L, c, d, diff_L, diff_d = self.generate_gaussian_safety_con(phi, p_i, diff_p_i, modal_param)
+                    self.safety_conditions.append({'L': L.item(), 'c':c.item(), 'd':d})   # for drawing
                     Ls.append(block_diag(L, np.zeros((1, 1))))
                     cs.append(np.vstack([c, np.ones((1, 1))]))
                     ds.append(d)
@@ -318,6 +322,9 @@ class MMMulRSSA(SafetyIndex):
             optimal_p = res.x
             self.p_init = optimal_p  # update initial p
             u, _, _= safe_control_with_p(optimal_p)
+
+            self.optimal_p = optimal_p  # for drawing
+
             if self.debug:
                 print(f'optimal value: {opt_value}')
                 print(f'optimal p : {optimal_p}')
@@ -483,11 +490,30 @@ if __name__ == '__main__':
     
     q_d = np.array([0, 0])
     dq_d = np.array([1, 0])
-    for i in tqdm(range(960)):
-        u = env.robot.PD_control(q_d, dq_d)
-        u = ssa.safe_control(u)
-        # print(env.Xr)
-        env.step(u)
-        env.render(img_name=str(i) + '.jpg', save_path='./src/pybullet-dynamics/SegWay_env/imgs/mm_mul_rssa/')
+    # for i in tqdm(range(960)):
+    #     u = env.robot.PD_control(q_d, dq_d)
+    #     u = ssa.safe_control(u)
+    #     # print(env.Xr)
+    #     env.step(u)
+    #     env.render(img_name=str(i) + '.jpg', save_path='./src/pybullet-dynamics/SegWay_env/imgs/mm_mul_rssa/')
 
-    generate_gif('mm_mul_rssa.gif', './src/pybullet-dynamics/SegWay_env/imgs/mm_mul_rssa/', duration=0.01)
+    # generate_gif('mm_mul_rssa.gif', './src/pybullet-dynamics/SegWay_env/imgs/mm_mul_rssa/', duration=0.01)
+
+
+    ######## for debug
+    safety_index_params={
+        'alpha': 1.0,
+        'k_v': 1.0,
+        'beta': 0.001,
+    }
+
+    env.robot.K_m = 2.2
+    env.robot.q =  np.array([0, -0.721])
+    env.robot.dq = np.array([-2.184, -3.41])
+    phi = env.get_phi(safety_index_params)
+    p_phi_p_Xr = env.get_p_phi_p_Xr(safety_index_params)
+    print(f'phi= {phi}')
+    print(f'left={p_phi_p_Xr @ env.g}')
+    print(f'right={-0.1*phi - p_phi_p_Xr @ env.f}')
+    print(f'u {(-0.1*phi - p_phi_p_Xr @ env.f)/(p_phi_p_Xr @ env.g)}')
+    print(ssa.safe_control(np.array([0])))

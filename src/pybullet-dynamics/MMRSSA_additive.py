@@ -23,7 +23,7 @@ class MMAddRSSA(SafetyIndex):
         sampling=False,
         sample_points_num=10,
         gamma=0.1,
-        epsilon_0=0.05,
+        epsilon_0=0.0001,
         epsilon_f=0.01
     ):
         super().__init__(env, safety_index_params)
@@ -52,17 +52,19 @@ class MMAddRSSA(SafetyIndex):
         p_phi_p_Xr = self.env.get_p_phi_p_Xr(self.safety_index_params)
         f = self.env.f
         modal_1_weight, modal_1_mu, modal_1_sigma = modal_params[0]
+        self.k_list = None # for drawing confidence interval
         while r_k1 - l_k1 >= self.epsilon_0:
             k_1 = (l_k1 + r_k1)/2
             o_1 = -p_phi_p_Xr @ (f + modal_1_mu) - k_1 * self.get_rho(modal_1_sigma)
             k_list = [k_1]
             for i in range(len(modal_params)-1):
                 weight, mu, sigma = modal_params[i+1]
-                k_list.append((-p_phi_p_Xr@(f+mu)-o_1)/self.get_rho(sigma))
+                k_list.append(((-p_phi_p_Xr@(f+mu)-o_1)/self.get_rho(sigma)).item())
             
+            self.k_list = k_list
             sum=0
             for i in range(len(modal_params)):
-                sum += modal_params[i][0] * scipy.stats.norm.cdf(k_list[i])
+                sum += modal_params[i][0] * (scipy.stats.norm.cdf(k_list[i])*2-1)
             
             if sum > 1 - self.epsilon_f:
                 r_k1 = k_1
@@ -118,6 +120,12 @@ class MMAddRSSA(SafetyIndex):
             grad_phi_mul_g = np.zeros((1, n))
             RHS = 1
         
+        ############ for drawing robust control set
+        self.modal_params_pred = modal_params_pred
+        self.grad_phi_mul_g = grad_phi_mul_g
+        self.RHS = RHS
+        ############
+
         A_slack = np.zeros((1, n + 1))
         A_slack[0, -1] = -1
         b_slack = np.zeros((1, 1))

@@ -10,6 +10,7 @@ from tqdm import tqdm
 from SegWay_env.SegWay_multimodal_env import SegWayMultiplicativeNoiseEnv
 from RSSA_safety_index import SafetyIndex
 from SegWay_env.SegWay_utils import *
+from MMRSSA_utils import draw_ellipsoid
 
 solvers.options['show_progress'] = False
 
@@ -60,6 +61,8 @@ class GaussianMulRSSA(SafetyIndex):
             gaussian_param['g_mu'] = np.mean(g_points_flat, axis=0).reshape(self.x_dim, self.u_dim)    # shape: (x_dim, u_dim)
             gaussian_param['g_sigma'] = np.cov(g_points_flat.T)
 
+            self.g_points_flat = g_points_flat # for drawing 
+
             if self.debug:
                 fig, ax = plt.subplots()
                 ax.plot(f_points[:, 2], f_points[:, 3], 'o')
@@ -67,18 +70,7 @@ class GaussianMulRSSA(SafetyIndex):
                 mean = np.mean(f_points[:, 2:], axis=0).reshape(-1, 1)
                 sigma = np.cov(f_points[:, 2:].T)
 
-                sqrt_cov = np.sqrt(np.linalg.eigvals(sigma))
-                width, height = stats.norm.ppf((self.p_gaussian + 1)/2) * 2 * sqrt_cov
-
-                # Calculate rotation angle
-                evec = np.linalg.eigh(sigma)[1]
-                angle = np.arctan2(evec[0,1], evec[0,0]) * 180 / np.pi
-
-                # Plot ellipse
-                from matplotlib.patches import Ellipse
-                ax = plt.gca()
-                ax.add_patch(Ellipse(mean, width=width, height=height, angle=angle,
-                                    facecolor='none', edgecolor='r'))
+                draw_ellipsoid(ax, mean, sigma, self.p_gaussian)
 
                 plt.show()
 
@@ -215,6 +207,10 @@ class GaussianMulRSSA(SafetyIndex):
             cs = []
             ds = []
         
+        ######### for drawing robust control set
+        self.safety_conditions = {'L':L.item(), 'c':c.item(), 'd':d}
+        ##########
+
         # A:  A_U,  A_slack
         A_slack = np.zeros((1, self.u_dim + 1))
         A_slack[0, -1] = -1

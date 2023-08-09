@@ -10,6 +10,7 @@ from tqdm import tqdm
 from SegWay_env.SegWay_multimodal_env import SegWayAdditiveNoiseEnv
 from RSSA_safety_index import SafetyIndex
 from SegWay_env.SegWay_utils import *
+from MMRSSA_utils import draw_ellipsoid
 
 solvers.options['show_progress'] = False
 
@@ -54,7 +55,11 @@ class GaussianAddRSSA(SafetyIndex):
             # sampling method
             f_points = self.env.sample_f_points(points_num=self.sample_points_num)
             f_points = np.array(f_points).reshape(self.sample_points_num, -1)
-            
+
+            ######## for drawing confidence interval
+            self.f_points = f_points
+            ###########
+
             gaussian_param['f_mu'] = np.mean(f_points, axis=0).reshape(-1, 1)    # shape: (x_dim, 1)
             gaussian_param['f_sigma'] = np.cov(f_points.T)
 
@@ -65,18 +70,7 @@ class GaussianAddRSSA(SafetyIndex):
                 mean = np.mean(f_points[:, 2:], axis=0).reshape(-1, 1)
                 sigma = np.cov(f_points[:, 2:].T)
 
-                sqrt_cov = np.sqrt(np.linalg.eigvals(sigma))
-                width, height = stats.norm.ppf((self.p_gaussian + 1)/2) * 2 * sqrt_cov
-
-                # Calculate rotation angle
-                evec = np.linalg.eigh(sigma)[1]
-                angle = np.arctan2(evec[0,1], evec[0,0]) * 180 / np.pi
-
-                # Plot ellipse
-                from matplotlib.patches import Ellipse
-                ax = plt.gca()
-                ax.add_patch(Ellipse(mean, width=width, height=height, angle=angle,
-                                    facecolor='none', edgecolor='r'))
+                draw_ellipsoid(ax, mean, sigma, self.p_gaussian)
 
                 plt.show()
 
@@ -140,14 +134,18 @@ class GaussianAddRSSA(SafetyIndex):
 
         phi = self.env.get_phi(self.safety_index_params)
         p_phi_p_Xr = self.env.get_p_phi_p_Xr(self.safety_index_params)
-
         if phi > 0:
             grad_phi_mul_g = p_phi_p_Xr @ self.env.g
-            RHS = -self.gamma * phi - p_phi_p_Xr @ f_mu - stats.norm.ppf((self.p_gaussian+1)/2) * np.sqrt(p_phi_p_Xr @ f_sigma @ p_phi_p_Xr.T)
+            RHS = -self.gamma * phi - p_phi_p_Xr @ f_mu - stats.norm.ppf((self.p_gaussian+1)/2) * np.sqrt(p_phi_p_Xr @ f_sigma @ p_phi_p_Xr.T) # sqrt(chi2(p, 1))=norm((p+1)/2)
         else:
             grad_phi_mul_g = np.zeros((1, n))
             RHS = 1
         
+        ######### for drawing robust control set
+        self.grad_phi_mul_g = grad_phi_mul_g
+        self.RHS = RHS
+        ##########
+
         A_slack = np.zeros((1, n + 1))
         A_slack[0, -1] = -1
         b_slack = np.zeros((1, 1))
