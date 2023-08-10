@@ -12,3 +12,9 @@ See `src/pybullet-dynamics/panda_rod_env/panda_abstract_safe_control.py`
 
 Note: when using `PandaEnv`, please install [pytorch-kinematics](https://github.com/UM-ARM-Lab/pytorch_kinematics) package.
 
+## Multi-Modal Robust Safe Control
+See `src/pybullet-dynamics/MMRSSA_*`
+- SegWayAdditiveNoiseEnv: add noise on $f(x)$
+- SegWayMultiplicativeNoiseEnv: $K_m$
+- SegWayMultiplicativeAllNoiseEnv: add noise on $f$ and $g$
+
