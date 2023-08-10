@@ -3,6 +3,7 @@ import scipy.stats as stats
 from matplotlib import pyplot as plt
 import numpy as np
 from matplotlib.patches import Ellipse, Rectangle
+from matplotlib.transforms import Affine2D
 
 
 class DifferentiableChi2ppf(torch.autograd.Function):
@@ -21,7 +22,7 @@ class DifferentiableChi2ppf(torch.autograd.Function):
         grad_x = grad_output / stats.chi2.pdf(y, ctx.df)
         return grad_x, None 
 
-def draw_ellipsoid(ax, mu, sigma, confidence=None, k=None, color='blue', alpha=0.5):
+def draw_ellipsoid(ax, mu, sigma, confidence=None, k=None, edgecolor='none', color='blue', alpha=0.5):
     # Eigen decomposition
     eigenvalues, eigenvectors = np.linalg.eigh(sigma + np.eye(2)*0.00001)
     order = eigenvalues.argsort()[::-1]
@@ -38,34 +39,38 @@ def draw_ellipsoid(ax, mu, sigma, confidence=None, k=None, color='blue', alpha=0
         width, height = k * 2 * sqrt_cov
 
     # Plot ellipse
-    ax.add_patch(Ellipse(mu, width=width, height=height, angle=angle,
-                        edgecolor='none', facecolor=color, alpha=alpha))
+    ellipse = Ellipse(mu, width=width, height=height, angle=angle,
+                        edgecolor=edgecolor, facecolor=color, alpha=alpha)
+    ax.add_patch(ellipse)
+    return ellipse
     
-def draw_rectangle(ax, mu, sigma, confidence=None, k=None, color='blue', alpha=0.5):
+def draw_rectangle(ax, mu, sigma, confidence=None, k=None, color='blue', alpha=0.5, height=0.02):
     # Eigen decomposition
     eigenvalues, eigenvectors = np.linalg.eigh(sigma + np.eye(2)*0.001)
     order = eigenvalues.argsort()[::-1]
     eigenvalues = eigenvalues[order]
     eigenvectors = eigenvectors[:, order]
-
+    print(eigenvalues)
     # Calculate angle (in degrees) to rotate the ellipse
-    angle = np.arctan2(*eigenvectors[:, 0][::-1])
+    angle = np.degrees(np.arctan2(*eigenvectors[:, 0][::-1]))
 
     sqrt_cov = np.sqrt(eigenvalues)
     if confidence:
-        width, height = stats.norm.ppf((confidence + 1)/2) * 2 * sqrt_cov[0], 0.01
+        width, height = stats.norm.ppf((confidence + 1)/2) * 2 * sqrt_cov[0], height
     if k:  # in case k is so large that confidence will be inf
-        width, height = k * 2 * sqrt_cov[0], 0.01
+        width, height = k * 2 * sqrt_cov[0], height
 
-    xy = -np.array([width, height])/2
-    xy[0] = xy[0]*np.cos(angle) - xy[1]*np.sin(angle)
-    xy[1] = xy[0]*np.sin(angle) + xy[1]*np.cos(angle)
-    xy = mu.reshape(-1) + xy
-    angle = np.degrees(angle)
-    # Plot ellipse
-    ax.add_patch(Rectangle(xy, width=width, height=height, angle=angle,
-                        edgecolor='none', facecolor=color, alpha=alpha))
+    # Create the rectangle centered at the origin
+    rectangle = Rectangle((mu[0]-width/2, mu[1]-height/2), width, height, angle=0, 
+                          edgecolor='none', facecolor=color, alpha=alpha)
 
+    # Transform the rectangle to have the desired center
+    t = Affine2D().rotate_deg_around(mu[0], mu[1], angle)
+    rectangle.set_transform(t + ax.transData)
+
+    ax.add_patch(rectangle)
+
+    return rectangle
 
 # Test
 if __name__ == '__main__':

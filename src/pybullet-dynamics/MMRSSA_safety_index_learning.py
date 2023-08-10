@@ -97,27 +97,28 @@ class SegWayMMSafetyIndexLearning(RSSASafetyIndexLearning):
 
     def visualize(
         self, param_dict: Dict, 
-        q_sampled_per_dim=100, 
-        dq_num=100,
+        dq_sampled_per_dim=100, 
+        q_num=100,
     ):  
-        q_1_list = np.linspace(start=self.env.q_limit['low'][0], stop=self.env.q_limit['high'][0], num=q_sampled_per_dim)
-        q_2_list = np.linspace(start=self.env.q_limit['low'][1], stop=self.env.q_limit['high'][1], num=q_sampled_per_dim)
-        dq_list = np.random.uniform(low=self.env.dq_limit['low'], high=self.env.dq_limit['high'], size=(dq_num, 2))
-        heat_map = np.zeros((len(q_1_list), len(q_2_list)))
-        for i in range(len(q_1_list)):
-            for j in range(len(q_2_list)):
-                self.env.robot.q = np.asanyarray([q_1_list[i], q_2_list[j]])
+        self.rssa.safety_index_params = param_dict
+        dq_1_list = np.linspace(start=self.env.dq_limit['low'][0], stop=self.env.dq_limit['high'][0], num=dq_sampled_per_dim)
+        dq_2_list = np.linspace(start=self.env.dq_limit['low'][1], stop=self.env.dq_limit['high'][1], num=dq_sampled_per_dim)
+        heat_map = np.zeros((len(dq_1_list), len(dq_2_list)))
+        for i in tqdm(range(len(dq_1_list))):
+            for j in range(len(dq_2_list)):
+                q_list = np.random.uniform(low=self.env.q_limit['low'], high=self.env.q_limit['high'], size=(q_num, 2)) # only q[1] is useful
+                self.env.robot.dq = np.asanyarray([dq_1_list[i], dq_2_list[j]])
                 penalty = 0
-                for dq in dq_list:
-                    self.env.robot.dq = dq
+                for q in q_list:
+                    self.env.robot.q = q
                     phi = self.env.get_phi(safety_index_params=param_dict)
-                    if not self.env.detect_collision() and phi >= 0:
-                        if self.env.robot.p[0] > 0.5 and not self.check_one_state(phi, self.rssa_type):
-                            logger.debug(f'x: {self.env.robot.p[0]}, dx: {self.env.robot.dp[0]}, phi: {phi}')
+                    if phi >= 0:
+                        if not self.check_one_state():
+                            logger.debug(f'q: {self.env.robot.q}, dq: {self.env.robot.dq}, phi: {phi}')
                             penalty += 1
                 heat_map[i, j] = penalty
-                logger.debug(f'q: {self.env.robot.q}, penalty: {penalty}')
-        return q_1_list, q_2_list, heat_map
+                logger.debug(f'dq: {self.env.robot.dq}, penalty: {penalty}')
+        return dq_1_list, dq_2_list, heat_map
     
 
 def MM_Learning(
@@ -190,60 +191,42 @@ def MM_Learning(
         param_dict = copy(MM_learn.init_params)
         for i, key in enumerate(param_dict.keys()):
             param_dict[key] = MM_learn.mu[i]
-        q_1_list, q_2_list, heat_map = MM_learn.visualize(
+        dq_1_list, dq_2_list, heat_map = MM_learn.visualize(
             param_dict,
-            q_sampled_per_dim=safety_index_learning_kwargs['q_sampled_per_dim'],
-            dq_num=safety_index_learning_kwargs['dq_num']
+            dq_sampled_per_dim=safety_index_learning_kwargs['dq_sampled_per_dim'],
+            q_num=safety_index_learning_kwargs['q_num']
         )
         with open(log_path + '/DR_heatmap.pkl', 'wb') as file:
-                pickle.dump({'q_1': q_1_list, 'q_2': q_2_list, 'heat_map': heat_map}, file)
+                pickle.dump({'dq_1': dq_1_list, 'dq_2': dq_2_list, 'heat_map': heat_map}, file)
     
     pkl_path = log_path + '/DR_heatmap.pkl'
     return pkl_path, log_path
    
 def draw_heatmap(data):
     q_ticks = [-1.5, 1.0, -0.5, 0.0, 0.5, 1.0, 1.5]
-    q_1 = data['q_1']
-    q_2 = data['q_2']
+    dq_1 = data['dq_1']
+    dq_2 = data['dq_2']
     penalty = data['heat_map']
-    q_1, q_2 = np.meshgrid(q_1, q_2)
-    # sns.set_theme()
-    # ax = sns.heatmap(penalty, vmin=0, vmax=60)
-    # xticks = range(0, len(q_ticks))
-    # yticks = range(0, len(q_ticks))
-    # ax.set_xticks(xticks)
-    # ax.set_yticks(yticks)
-    # ax.set_xticklabels(np.array(q_ticks))
-    # ax.set_yticklabels(np.array(q_ticks))
-    # plt.ylim(0,len(q_ticks))
-    # plt.xlim(0,len(q_ticks))
-    cb = plt.contourf(q_1, q_2, penalty, vmin=0, vmax=60)
-    plt.colorbar(cb)
-    plt.savefig(log_path + '/configration.png')
+    # penalty = np.zeros_like(penalty)
+
+    fig, ax = plt.subplots(figsize=(4, 10/3)) # set figure size
+
+    c = ax.imshow(penalty, vmin = 0, vmax = 60,
+                    extent =[dq_1.min(), dq_1.max(), dq_2.min(), dq_2.max()],
+                        interpolation ='nearest', origin ='lower')
+    ax.set_xlabel('$\mathrm{\dot{ p}(m/s)}$')
+    ax.set_ylabel('$\mathrm{\dot{\phi}(rad/s)}$')
     
-def cartesian_heatmap(data):
-    q_1 = data['q_1']
-    q_2 = data['q_2']
-    penalty = data['heat_map']
-    env = SegWayMultiplicativeNoiseEnv()
-    
-    cartesian_heatmap = []
-    for i in range(len(q_1)):
-        for j in range(len(q_2)):
-            if penalty[i, j] != 0:
-                env.robot.q = np.array([q_1[i], q_2[j]])
-                cartesian_heatmap.append(env.robot.p)
-    cartesian_heatmap = np.asanyarray(cartesian_heatmap)
-    plt.figure(figsize=(5, 5))
-    plt.scatter(cartesian_heatmap[:, 0], cartesian_heatmap[:, 1], alpha=0.1, s=8)
-    plt.xlim(-2.0, 2.0)
-    plt.plot([1.6, 1.6], [1.8, -1.8], linewidth=3)
-    plt.savefig(log_path + '/cartesian.png')
+    plt.colorbar(c)
+
+    plt.tight_layout()
+    plt.savefig(log_path + '/heatmap.png')
 
 
 if __name__ == '__main__':
     pkl_path, log_path = MM_Learning()
+    # pkl_path = '/home/liqian/RSSA-and-abstract-safe-control/src/pybullet-dynamics/SegWay_env/log/Safety_index_learning/phi_h/DR_heatmap.pkl'
+    # log_path = '/home/liqian/RSSA-and-abstract-safe-control/src/pybullet-dynamics/SegWay_env/log/Safety_index_learning/phi_h/'
     with open(pkl_path, 'rb') as file:
         data = pickle.load(file)
     draw_heatmap(data)
-    cartesian_heatmap(data)

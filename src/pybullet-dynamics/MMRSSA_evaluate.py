@@ -19,7 +19,7 @@ from MMRSSA_gaussian_additive import GaussianAddRSSA
 from RSSA_utils import Monitor
 from MMRSSA_utils import draw_ellipsoid, draw_rectangle
 
-from SegWay_env.SegWay_multimodal_env import SegWayAdditiveNoiseEnv, SegWayMultiplicativeNoiseEnv
+from SegWay_env.SegWay_multimodal_env import SegWayAdditiveNoiseEnv, SegWayMultiplicativeNoiseEnv, SegWayMultiplicativeAllNoiseEnv
 from SCARA_env.SCARA_utils import draw_GP_confidence_interval
 from SegWay_env.SegWay_utils import generate_gif
 
@@ -213,10 +213,10 @@ def draw_interval_in_MM_SegWay(
             a_safe_limit=robot_kwargs['a_safe_limit'],
         )   
     
-    fig1 = plt.figure(figsize=(5, 8))
+    fig1 = plt.figure(figsize=(3.5, 5))
     ax_model = fig1.add_subplot(1,1,1)
 
-    fig2 = plt.figure(figsize=(5, 8))
+    fig2 = plt.figure(figsize=(3.5, 5))
     ax_u = fig2.add_subplot(1,1,1)
 
     env.reset()
@@ -234,15 +234,22 @@ def draw_interval_in_MM_SegWay(
             # sigma = sigma[2:, 2:]
             mu = mu[[1,3]] + env.f[[1,3]]
             sigma = sigma[[1,3]][:,[1,3]]
-            draw_ellipsoid(ax_model, mu, sigma, k=k, color='green')
+            ellipse_mm = draw_ellipsoid(ax_model, mu, sigma, k=k, edgecolor='green', color='green', alpha=0.6)
         f_points = gaussian_rssa.f_points
-        ax_model.plot(f_points[:, 1], f_points[:, 3], 'o', color='orange', markersize=3, alpha=0.8)
+        ax_model.plot(f_points[:, 1], f_points[:, 3], 'o', color='orange', markersize=2, alpha=0.8)
         mu = np.mean(f_points[:, [1, 3]], axis=0).reshape(-1, 1)
         sigma = np.cov(f_points[:, [1, 3]].T)
-        draw_ellipsoid(ax_model, mu, sigma, confidence=gaussian_rssa.p_gaussian, color='cornflowerblue')
+        ellipse_gaussian = draw_ellipsoid(ax_model, mu, sigma, confidence=gaussian_rssa.p_gaussian, color='cornflowerblue')
+
+        legend = ax_model.legend([ellipse_mm, ellipse_gaussian], ['Multi-Modal RSSA', 'Ellipsoid RSSA'], prop={'size': 10},  loc='upper left')
+        legend.get_frame().set_facecolor('none')  # remove background color
+        legend.get_frame().set_edgecolor('none')  # remove border
+
         ax_model.set_aspect('equal')
-        ax_model.set_xlabel('$\mathrm{f_2(rad)}$')
-        ax_model.set_ylabel('$\mathrm{f_4(rad/s)}$')
+        ax_model.set_xlim(-7, 5)
+
+        ax_model.set_xlabel('$\mathrm{f_2(rad^1 A^{-1})}$')
+        ax_model.set_ylabel('$\mathrm{f_4(rad^1 s^{-1} A^{-1})}$')
 
         # draw feasible u
         mm_u_limit = [-40, 40]
@@ -258,24 +265,15 @@ def draw_interval_in_MM_SegWay(
             gaussian_u_limit[0]=max(gaussian_u_limit[0], gaussian_rssa.RHS/gaussian_rssa.grad_phi_mul_g)
 
         # Draw intervals as vertical lines
-        ax_u.vlines(1, mm_u_limit[0], mm_u_limit[1], colors='green', linewidth=50)  
-        ax_u.vlines(2, gaussian_u_limit[0], gaussian_u_limit[1], colors='cornflowerblue', linewidth=50)
-        ax_u.set_xticks([1, 2], ['$U_r$ of \n Multimodal RSSA', '$U_r$ of \n Gaussian RSSA'])
-        ax_u.set_ylabel('$\mathrm{u(Nm)}$')
-        # Set limits
-        ax_u.axhline(y=-40, color='black', label='u=-40', linestyle='--')
-        ax_u.axhline(y=40, color='black', label='u=40', linestyle='--')
-        ax_u.set_xlim([0.5, 2.5])
-        ax_u.set_ylim([-50, 50])
+        line_mm = ax_u.vlines(1, mm_u_limit[0], mm_u_limit[1], colors='green', linewidth=50)  
+        line_gaussian = ax_u.vlines(2, gaussian_u_limit[0], gaussian_u_limit[1], colors='cornflowerblue', linewidth=50)
 
-        fig1.savefig(log_path + '/f_bound.png')
-        fig2.savefig(log_path + '/u_bound.png')
 
     else:
         mmrssa: MMMulRSSA = get_rssa('multiplicative_mmrssa', env, safe_control_kwargs)
         gaussian_rssa: GaussianMulRSSA = get_rssa('gaussian_multiplicative_mmrssa', env, safe_control_kwargs)
-        u_mmrssa = mmrssa.safe_control(np.array([-20]))
-        u_gaussian = gaussian_rssa.safe_control(np.array([-20]))
+        u_mmrssa = mmrssa.safe_control(np.array([0]))
+        u_gaussian = gaussian_rssa.safe_control(np.array([0]))
         print(u_mmrssa, u_gaussian)
         for modal_param, p in zip(mmrssa.modal_params_pred, mmrssa.optimal_p):
             # f_mu = modal_param['f_mu']
@@ -284,14 +282,22 @@ def draw_interval_in_MM_SegWay(
             g_sigma = modal_param['g_sigma']
             mu = g_mu[[2,3]]
             sigma = g_sigma[[2,3]][:,[2,3]]
-            draw_ellipsoid(ax_model, mu, sigma, confidence=p, color='green')
+            rectangle_mm = draw_rectangle(ax_model, mu, sigma, confidence=p, color='green', alpha=0.8, height=0.04)
         g_points_flat = gaussian_rssa.g_points_flat
-        ax_model.plot(g_points_flat[:, 2], g_points_flat[:, 3], 'o', color='orange', markersize=2, alpha=0.6)
+        ax_model.plot(g_points_flat[:, 2], g_points_flat[:, 3], 'o', color='orange', markersize=3, alpha=0.6)
         mu = np.mean(g_points_flat[:, [2, 3]], axis=0).reshape(-1, 1)
         sigma = np.cov(g_points_flat[:, [2, 3]].T)
-        draw_ellipsoid(ax_model, mu, sigma, confidence=gaussian_rssa.p_gaussian, color='cornflowerblue')
-        ax_model.set_xlabel('$\mathrm{g_3(rad)}$')
-        ax_model.set_ylabel('$\mathrm{g_4(rad/s)}$')
+        rectangle_gaussian = draw_rectangle(ax_model, mu, sigma, confidence=gaussian_rssa.p_gaussian, color='cornflowerblue', height=0.05)
+
+        legend = ax_model.legend([rectangle_mm, rectangle_gaussian], ['Multi-Modal RSSA', 'Ellipsoid RSSA'], prop={'size': 10},  loc='upper right')
+        legend.get_frame().set_facecolor('none')  # remove background color
+        legend.get_frame().set_edgecolor('none')  # remove border
+
+        ax_model.set_aspect('equal')
+        ax_model.set_xlim(-0.1, 1.1)
+
+        ax_model.set_xlabel('$\mathrm{g_3(m^1 s^{-1} A^{-1})}$')
+        ax_model.set_ylabel('$\mathrm{g_4(rad^1 s^{-1} A^{-1})}$')
 
         # draw feasible u
         mm_u_limit = [-40, 40]
@@ -329,22 +335,38 @@ def draw_interval_in_MM_SegWay(
         # Draw intervals as vertical lines
         for sub_interval in mm_u_interval:
             u_l, u_r = sub_interval.inf, sub_interval.sup
-            ax_u.vlines(1, u_l, u_r, colors='green', linewidth=50)
+            line_mm = ax_u.vlines(1, u_l, u_r, colors='green', linewidth=50)
         for sub_interval in gaussian_u_interval:
             u_l, u_r = sub_interval.inf, sub_interval.sup
-            ax_u.vlines(2, u_l, u_r, colors='cornflowerblue', linewidth=50)
-        ax_u.set_xticks([1, 2], ['$U_r$ of \n Multimodal RSSA', '$U_r$ of \n Gaussian RSSA'])
-        ax_u.set_ylabel('$\mathrm{u(Nm)}$')
-        # Set limits
-        ax_u.axhline(y=-40, color='black', label='u=-40', linestyle='--')
-        ax_u.axhline(y=40, color='black', label='u=40', linestyle='--')
-        ax_u.set_xlim([0.5, 2.5])
-        ax_u.set_ylim([-50, 50])
+            line_gaussian = ax_u.vlines(2, u_l, u_r, colors='cornflowerblue', linewidth=50)
 
-        fig1.savefig(log_path + '/g_bound.png')
-        fig2.savefig(log_path + '/u_bound.png')
+    line_limit = ax_u.vlines(1, -40, 40, colors='gray', linewidth=50, zorder=0, alpha=0.2) 
+    line_limit = ax_u.vlines(2, -40, 40, colors='gray', linewidth=50, zorder=0, alpha=0.2) 
 
-    
+
+    ax_u.set_xticks([1, 2], ['Multimodal RSSA', 'Ellipsoid RSSA'])
+    ax_u.set_ylabel('$\mathrm{u(A)}$')
+
+    legend = ax_u.legend([line_mm, line_gaussian, line_limit], 
+                            ['$\mathrm{ U_r}$ of Multi-Modal RSSA', '$\mathrm{ U_r}$ of Ellipsoid RSSA', 'Control Limits'], 
+                            prop={'size': 10},  loc='upper left')
+    legend.get_frame().set_facecolor('none')  # remove background color
+    legend.get_frame().set_edgecolor('none')  # remove border
+    # Adjust the linewidth of the legend handles
+    for handle in legend.legend_handles:
+        handle.set_linewidth(10)  # Adjust this value as needed to get the desired block size
+
+    ax_u.axhline(y=-40, color='black', label='u=-40', linestyle='--')
+    ax_u.axhline(y=40, color='black', label='u=40', linestyle='--')
+
+    ax_u.set_xlim([0.5, 2.5])
+    ax_u.set_ylim([-43, 57])
+
+    fig1.tight_layout()
+    fig2.tight_layout()
+    fig1.savefig(log_path + '/f_bound.png')
+    fig2.savefig(log_path + '/u_bound.png')
+
     plt.show()
     return
 
@@ -362,6 +384,7 @@ if __name__ == '__main__':
     # draw_phi(data, rssa_types)
     # draw_u(data, rssa_types)
 
-    ### draw interval
-    # draw_interval_in_MM_SegWay(env_type='additive', q=[0, 0.06], dq=[0, 0.5])    
-    draw_interval_in_MM_SegWay(env_type='multiplicative', q=[0, 0.2], dq=[0, 0.5])    
+    ## draw interval
+    draw_interval_in_MM_SegWay(env_type='additive', q=[0, 0.06], dq=[0, 0.5])    
+    # draw_interval_in_MM_SegWay(env_type='multiplicative', q=[0, 0.06], dq=[0, 0.5])
+    # draw_interval_in_MM_SegWay(env_type='multiplicative', q=[3.29812681, 1.56144867], dq=[3.7755102,  -0.10204082])    
