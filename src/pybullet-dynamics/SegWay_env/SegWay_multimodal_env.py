@@ -1,5 +1,6 @@
 from typing import Dict
 import numpy as np
+import copy
 
 try:
     from SegWay_env import SegWayEnv
@@ -8,13 +9,23 @@ except:
     from SegWay_env.SegWay_env import SegWayEnv
     from SegWay_env.SegWay_utils import *
 
+cov_array_1 = np.diag([0.1]*4)
+cov_array_1[1,3] -= 0.05
+cov_array_1[3,1] = cov_array_1[1,3]
+
+cov_array_2 = np.diag([0.18]*4)
+cov_array_2[1,3] += 0.1
+cov_array_2[3,1] = cov_array_2[1,3]
+
 class SegWayAdditiveNoiseEnv(SegWayEnv):
     def __init__(
         self,
         # modal_params = [[0.3, np.array([0.1]*4).reshape(-1,1), np.eye(4, 4)*0.2], 
         #                 [0.7, np.array([-0.2]*4).reshape(-1,1), np.eye(4, 4)*0.2]],  
-        modal_params = [[0.8, np.array([0.1, -0.1, 0.1, -0.1]).reshape(-1,1), np.diag([0.1]*4)], 
-                        [0.2, np.array([-0.1, -1.0, 0.2, -10.0]).reshape(-1,1), np.diag([0.1]*4)]], 
+        modal_params = [[0.8, np.array([0.1, -0.1, 0.1, -0.1]).reshape(-1,1), cov_array_1], 
+                        [0.2, np.array([-0.1, -1.0, 0.2, -7.0]).reshape(-1,1), cov_array_2]],    
+        # modal_params = [[0.8, np.array([0.0]*4).reshape(-1,1), np.diag([0.1]*4)], 
+        #                 [0.2, np.array([0.5]*4).reshape(-1,1), np.diag([0.1]*4)]],
         # [[modal_1_ratio, modal_1_mu, modal_1_sigma], [modal_2], ...] where modal_1_mu (4,1) modal_1_sigma (4, 4) 
         
         dt=1/240,
@@ -74,8 +85,8 @@ class SegWayAdditiveNoiseEnv(SegWayEnv):
         weights = [modal_param[0] for modal_param in self.modal_params]
         mus = [modal_param[1] for modal_param in self.modal_params]
         sigmas = [modal_param[2] for modal_param in self.modal_params]
+        f = self.f
         for _ in range(points_num):
-            f = self.f
             modal_index = np.random.choice(a=len(weights), p=weights)
             noise = np.random.multivariate_normal(np.squeeze(mus[modal_index]), sigmas[modal_index], size=1)
             f_points.append(f + noise.reshape(-1,1))
@@ -94,8 +105,12 @@ class SegWayAdditiveNoiseEnv(SegWayEnv):
 class SegWayMultiplicativeNoiseEnv(SegWayAdditiveNoiseEnv):
     def __init__(
         self,
-        K_m_modal_params = [[0.8, 2.2, 0.05], 
-                        [0.2, 4.0, 0.1]],  
+        # K_m_modal_params = [[0.8, 2.2, 0.05], 
+        #                 [0.2, 4.0, 0.1]],  
+        K_m_modal_params = [[0.8, 2.4, 0.05],  # safe_index_learning
+                        [0.2, 4.2, 0.4]],  
+        # K_m_modal_params = [[0.8, 2.2, 0.05],  # draw_interval
+        #                 [0.2, 4.2, 0.2]],   
         # [[modal_1_ratio, modal_1_mu, modal_1_sigma], [modal_2], ...] where modal_1_mu is scalar, modal_1_sigma is scalar 
         
         dt=1/240,
@@ -219,3 +234,90 @@ class SegWayMultiplicativeNoiseEnv(SegWayAdditiveNoiseEnv):
         D[1] = -(dr - R * da)
 
         return M_inv, C, D
+
+
+class SegWayMultiplicativeAllNoiseEnv(SegWayAdditiveNoiseEnv):
+    def __init__(
+        self,
+        noise_modal_params = [
+                {'weight': 0.2, 'f_mu': np.array([0.1, -0.1, 0.1, -0.1]).reshape(-1,1), 'f_sigma': np.diag([0.1]*4), 
+                         'g_mu': np.array([0.1, -0.1, 0.1, -0.8]).reshape(-1,1), 'g_sigma': np.diag([0.01]*4)}, 
+                {'weight': 0.8, 'f_mu': np.array([0.1, -0.1, 0.1, -0.1]).reshape(-1,1), 'f_sigma': np.diag([0.1]*4), 
+                 'g_mu': np.array([0.1, -0.1, 0.1, -0.1]).reshape(-1,1), 'g_sigma': np.diag([0.01]*4)}
+                ],
+        # [[modal_1_ratio, modal_1_mu, modal_1_sigma], [modal_2], ...] where modal_1_mu is scalar, modal_1_sigma is scalar 
+        
+        dt=1/240,
+        K_m=2.524, 
+        K_b=0.189,
+        m_0=52.710, m=44.798, J_0=5.108,
+        L=0.169, l=0.75, R=0.195,
+        g=9.81,
+        q_limit={'low': [-1.0, -np.pi/2], 'high': [1.0, np.pi/2]},
+        dq_limit={'low': [-5.0, -2.0], 'high': [5.0, 2.0]},
+        u_limit={'low': [-20.0], 'high': [20.0]},
+        a_safe_limit={'low': -0.1, 'high': 0.1},
+    ):
+        super().__init__(
+            None,
+            dt,
+            K_m,
+            K_b,
+            m_0, m, J_0,
+            L, l, R,
+            g,
+            q_limit, dq_limit, u_limit, a_safe_limit,
+        )
+        
+        # for online adaptation part 
+        self.noise_modal_params = noise_modal_params
+    
+    ### Interface for safe control
+    def sample_f_g_points(self, points_num=10):
+        '''
+        sample multimodal f and g
+        '''
+        true_K_m = self.robot.K_m
+        f_points = []
+        g_points = []
+        weights = [modal_param['weight'] for modal_param in self.noise_modal_params]
+        f_mus = [modal_param['f_mu'] for modal_param in self.noise_modal_params]
+        f_sigmas = [modal_param['f_sigma'] for modal_param in self.noise_modal_params]
+        g_mus = [modal_param['g_mu'] for modal_param in self.noise_modal_params]
+        g_sigmas = [modal_param['g_sigma'] for modal_param in self.noise_modal_params]
+
+        f = self.f
+        g = self.g
+
+        for _ in range(points_num):
+            modal_index = np.random.choice(a=len(weights), p=weights)
+            f_noise = np.random.multivariate_normal(np.squeeze(f_mus[modal_index]), f_sigmas[modal_index], size=1)
+            g_noise = np.random.multivariate_normal(np.squeeze(g_mus[modal_index]), g_sigmas[modal_index], size=1)
+            f_points.append(f + f_noise.reshape(-1,1))
+            g_points.append(g + g_noise.reshape(-1,1))
+
+        self.robot.K_m = true_K_m
+        return f_points, g_points
+    
+    def compute_f_g_modal_parameters(self):
+        '''
+        Compute f g modal parameters using dynamic models with out sampling.
+        _____________
+        return:
+        modal_params is a list. modal_1_params = modal_params[0], modal_1_params is a dict, keys: 'weight', 'f_mu', 'f_sigma', 'g_mu', 'g_sigma'
+        '''
+        f = self.f
+        g = self.g
+
+        modal_params = copy.deepcopy(self.noise_modal_params)
+
+        for modal_param in modal_params:
+            modal_param['f_mu'] += f
+            modal_param['g_mu'] += g
+
+        return modal_params
+
+    def reset(self):
+        self.robot.q = np.zeros(2)
+        self.robot.dq = np.zeros(2)
+        self.time=0
