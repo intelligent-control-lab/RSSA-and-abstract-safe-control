@@ -207,26 +207,26 @@ def draw_heatmap(data):
     dq_1 = data['dq_1']
     dq_2 = data['dq_2']
     penalty = data['heat_map']
-    # penalty = np.zeros_like(penalty)
 
     fig, ax = plt.subplots(figsize=(4, 10/3)) # set figure size
 
     c = ax.imshow(penalty, vmin = 0, vmax = 60,
                     extent =[dq_1.min(), dq_1.max(), dq_2.min(), dq_2.max()],
                         interpolation ='nearest', origin ='lower')
-    ax.set_xlabel('$\mathrm{\dot{ p}(m/s)}$')
-    ax.set_ylabel('$\mathrm{\dot{\phi}(rad/s)}$')
+    ax.set_xlabel('$\mathrm{\dot{ p}\ (m/s)}$')
+    ax.set_ylabel('$\mathrm{\dot{\\varphi}\ (rad/s)}$')
     
-    plt.colorbar(c)
+    cbar = fig.colorbar(c) 
+    cbar.ax.set_ylabel('$\%$ no feasible control', rotation=-90, va='bottom')
 
     plt.tight_layout()
     plt.savefig(log_path + '/heatmap.png')
 
 
 if __name__ == '__main__':
-    pkl_path, log_path = MM_Learning()
-    # pkl_path = '/home/liqian/RSSA-and-abstract-safe-control/src/pybullet-dynamics/SegWay_env/log/Safety_index_learning/phi_h/DR_heatmap.pkl'
-    # log_path = '/home/liqian/RSSA-and-abstract-safe-control/src/pybullet-dynamics/SegWay_env/log/Safety_index_learning/phi_h/'
+    # pkl_path, log_path = MM_Learning()
+    pkl_path = '/home/liqian/RSSA-and-abstract-safe-control/src/pybullet-dynamics/SegWay_env/log/Safety_index_learning/phi_l/DR_heatmap.pkl'
+    log_path = '/home/liqian/RSSA-and-abstract-safe-control/src/pybullet-dynamics/SegWay_env/log/Safety_index_learning/phi_l/'
     with open(pkl_path, 'rb') as file:
         data = pickle.load(file)
     draw_heatmap(data)

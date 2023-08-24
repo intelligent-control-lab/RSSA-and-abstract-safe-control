@@ -223,6 +223,8 @@ def draw_interval_in_MM_SegWay(
     env.robot.q = np.asanyarray(q)
     env.robot.dq = np.array(dq)
 
+    font_size = 12
+
     if env_type == 'additive':
         mmrssa: MMAddRSSA = get_rssa('additive_mmrssa', env, safe_control_kwargs)
         gaussian_rssa: GaussianAddRSSA = get_rssa('gaussian_additive_mmrssa', env, safe_control_kwargs)
@@ -241,15 +243,15 @@ def draw_interval_in_MM_SegWay(
         sigma = np.cov(f_points[:, [1, 3]].T)
         ellipse_gaussian = draw_ellipsoid(ax_model, mu, sigma, confidence=gaussian_rssa.p_gaussian, color='cornflowerblue')
 
-        legend = ax_model.legend([ellipse_mm, ellipse_gaussian], ['Multi-Modal RSSA', 'Ellipsoid RSSA'], prop={'size': 10},  loc='upper left')
+        legend = ax_model.legend([ellipse_mm, ellipse_gaussian], ['Multi-Modal RSSA', 'Ellipsoid RSSA'], prop={'size': font_size},  loc='upper left')
         legend.get_frame().set_facecolor('none')  # remove background color
         legend.get_frame().set_edgecolor('none')  # remove border
 
         ax_model.set_aspect('equal')
         ax_model.set_xlim(-7, 5)
 
-        ax_model.set_xlabel('$\mathrm{f_2(rad^1 A^{-1})}$')
-        ax_model.set_ylabel('$\mathrm{f_4(rad^1 s^{-1} A^{-1})}$')
+        ax_model.set_xlabel('$\mathrm{f_2(rad^1 A^{-1})}$', fontsize=font_size)
+        ax_model.set_ylabel('$\mathrm{f_4(rad^1 s^{-1} A^{-1})}$', fontsize=font_size)
 
         # draw feasible u
         mm_u_limit = [-40, 40]
@@ -289,15 +291,15 @@ def draw_interval_in_MM_SegWay(
         sigma = np.cov(g_points_flat[:, [2, 3]].T)
         rectangle_gaussian = draw_rectangle(ax_model, mu, sigma, confidence=gaussian_rssa.p_gaussian, color='cornflowerblue', height=0.05)
 
-        legend = ax_model.legend([rectangle_mm, rectangle_gaussian], ['Multi-Modal RSSA', 'Ellipsoid RSSA'], prop={'size': 10},  loc='upper right')
+        legend = ax_model.legend([rectangle_mm, rectangle_gaussian], ['Multi-Modal RSSA', 'Ellipsoid RSSA'], prop={'size': font_size}, loc='upper right', bbox_to_anchor=(1.05, 1))
         legend.get_frame().set_facecolor('none')  # remove background color
         legend.get_frame().set_edgecolor('none')  # remove border
 
         ax_model.set_aspect('equal')
-        ax_model.set_xlim(-0.1, 1.1)
+        ax_model.set_xlim(-0.05, 1.15)
 
-        ax_model.set_xlabel('$\mathrm{g_3(m^1 s^{-1} A^{-1})}$')
-        ax_model.set_ylabel('$\mathrm{g_4(rad^1 s^{-1} A^{-1})}$')
+        ax_model.set_xlabel('$\mathrm{g_3(m^1 s^{-1} A^{-1})}$', fontsize=font_size)
+        ax_model.set_ylabel('$\mathrm{g_4(rad^1 s^{-1} A^{-1})}$', fontsize=font_size)
 
         # draw feasible u
         mm_u_limit = [-40, 40]
@@ -340,27 +342,30 @@ def draw_interval_in_MM_SegWay(
             u_l, u_r = sub_interval.inf, sub_interval.sup
             line_gaussian = ax_u.vlines(2, u_l, u_r, colors='cornflowerblue', linewidth=50)
 
-    line_limit = ax_u.vlines(1, -40, 40, colors='gray', linewidth=50, zorder=0, alpha=0.2) 
-    line_limit = ax_u.vlines(2, -40, 40, colors='gray', linewidth=50, zorder=0, alpha=0.2) 
-
-
-    ax_u.set_xticks([1, 2], ['Multimodal RSSA', 'Ellipsoid RSSA'])
-    ax_u.set_ylabel('$\mathrm{u(A)}$')
-
-    legend = ax_u.legend([line_mm, line_gaussian, line_limit], 
-                            ['$\mathrm{ U_r}$ of Multi-Modal RSSA', '$\mathrm{ U_r}$ of Ellipsoid RSSA', 'Control Limits'], 
-                            prop={'size': 10},  loc='upper left')
-    legend.get_frame().set_facecolor('none')  # remove background color
-    legend.get_frame().set_edgecolor('none')  # remove border
-    # Adjust the linewidth of the legend handles
-    for handle in legend.legend_handles:
-        handle.set_linewidth(10)  # Adjust this value as needed to get the desired block size
+    line_unsafe = ax_u.vlines(1, -40, 40, colors='gray', linewidth=50, zorder=0, alpha=0.2) 
+    line_unsafe = ax_u.vlines(2, -40, 40, colors='gray', linewidth=50, zorder=0, alpha=0.2) 
 
     ax_u.axhline(y=-40, color='black', label='u=-40', linestyle='--')
     ax_u.axhline(y=40, color='black', label='u=40', linestyle='--')
 
+    hline_proxy = plt.Line2D([0], [0], linestyle='--', color='black') # for legends
+
+    ax_u.set_xticks([1, 2], ['Multimodal RSSA', 'Ellipsoid RSSA'], fontsize=11)
+    ax_u.set_ylabel('$\mathrm{u\ (A)}$', fontsize=font_size)
+
+    legend = ax_u.legend([line_mm, line_gaussian, line_unsafe, hline_proxy], 
+                            ['$\mathrm{ U_r}$ of Multi-Modal RSSA', '$\mathrm{ U_r}$ of Ellipsoid RSSA', 'Unsafe Control', 'Control Limits'], 
+                            prop={'size': font_size},  loc='upper left')
+    legend.get_frame().set_facecolor('none')  # remove background color
+    legend.get_frame().set_edgecolor('none')  # remove border
+    # Adjust the linewidth of the legend handles
+    for i, handle in enumerate(legend.legend_handles):
+        if i != 3:
+            handle.set_linewidth(10)  # Adjust this value as needed to get the desired block size
+
+
     ax_u.set_xlim([0.5, 2.5])
-    ax_u.set_ylim([-43, 57])
+    ax_u.set_ylim([-43, 67])
 
     fig1.tight_layout()
     fig2.tight_layout()
@@ -387,4 +392,4 @@ if __name__ == '__main__':
     ## draw interval
     draw_interval_in_MM_SegWay(env_type='additive', q=[0, 0.06], dq=[0, 0.5])    
     # draw_interval_in_MM_SegWay(env_type='multiplicative', q=[0, 0.06], dq=[0, 0.5])
-    # draw_interval_in_MM_SegWay(env_type='multiplicative', q=[3.29812681, 1.56144867], dq=[3.7755102,  -0.10204082])    
+    # draw_interval_in_MM_SegWay(env_type='multiplicative', q=[3.29812681, -1.55752018], dq=[-5,  -5])    
